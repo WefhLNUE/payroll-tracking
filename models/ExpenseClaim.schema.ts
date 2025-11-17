@@ -1,4 +1,4 @@
- import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 
 @Schema({ timestamps: true })
@@ -19,7 +19,6 @@ export class ExpenseClaim extends Document {
   receipts: string[]; // could be URLs to uploaded documents/images
 
   @Prop({
-    default: 'submitted',
     enum: [
       'Specialist_Approved',
       'Secialist_Rejected',
