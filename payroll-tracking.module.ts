@@ -7,11 +7,13 @@ import { claims, claimsSchema } from './Models/claims.schema';
 import { disputes, disputesSchema } from './Models/disputes.schema';
 import { PayrollConfigurationModule } from '../payroll-configuration/payroll-configuration.module';
 import { PayrollExecutionModule } from '../payroll-execution/payroll-execution.module';
+import { TimeManagementModule } from 'src/time-management/time-management.module';
 
 @Module({
   
   imports: [
     PayrollConfigurationModule,forwardRef(()=> PayrollExecutionModule),
+    TimeManagementModule,
     MongooseModule.forFeature([
       { name: refunds.name, schema: refundsSchema },
       { name: claims.name, schema: claimsSchema },
