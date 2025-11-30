@@ -5,21 +5,27 @@ import {
   Post,
   Body,
   ParseIntPipe,
+  UseGuards,
 } from '@nestjs/common';
 import {
   PayrollTrackingService,
   FinanceReport,
 } from './payroll-tracking.service';
+import { JwtAuthGuard } from '../auth/guards/jwt.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorator/roles.decorator';
+import { SystemRole } from '../employee-profile/enums/employee-profile.enums';
 
 @Controller('payroll-tracking')
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class PayrollTrackingController {
   constructor(
     private readonly payrollTrackingService: PayrollTrackingService,
   ) {}
 
-
   /** Get payslips by department */
   @Get('payslips/:departmentId/:payrollRunId')
+  @Roles(SystemRole.PAYROLL_SPECIALIST, SystemRole.PAYROLL_MANAGER, SystemRole.HR_MANAGER, SystemRole.FINANCE_STAFF)
   async getPayslipsByDepartment(
     @Param('departmentId') departmentId: string,
     @Param('payrollRunId') payrollRunId: string,
@@ -32,6 +38,7 @@ export class PayrollTrackingController {
 
   /** Get payroll runs by month */
   @Get('payroll-runs/month/:month/:year')
+  @Roles(SystemRole.PAYROLL_SPECIALIST, SystemRole.PAYROLL_MANAGER, SystemRole.HR_MANAGER, SystemRole.FINANCE_STAFF)
   async getPayrollRunsByMonth(
     @Param('month') month: string,
     @Param('year') year: string,
@@ -41,12 +48,14 @@ export class PayrollTrackingController {
 
   /** Get payroll runs by year */
   @Get('payroll-runs/year/:year')
+  @Roles(SystemRole.PAYROLL_SPECIALIST, SystemRole.PAYROLL_MANAGER, SystemRole.HR_MANAGER, SystemRole.FINANCE_STAFF)
   async getPayrollRunsByYear(@Param('year') year: string) {
     return this.payrollTrackingService.findPayrollRunByYear(year);
   }
 
   /** Generate finance report for a year */
   @Get('finance-report/:year')
+  @Roles(SystemRole.FINANCE_STAFF, SystemRole.FINANCE_MANAGER, SystemRole.PAYROLL_MANAGER, SystemRole.HR_MANAGER)
   async generateFinanceReport(
     @Param('year', ParseIntPipe) year: number,
   ): Promise<FinanceReport[]> {
@@ -57,36 +66,42 @@ export class PayrollTrackingController {
 
   /** Get disputes for payroll specialist review */
   @Get('disputes/for-specialist-review')
+  @Roles(SystemRole.PAYROLL_SPECIALIST, SystemRole.PAYROLL_MANAGER)
   async getDisputesForSpecialistReview() {
     return this.payrollTrackingService.getDisputesForSpecialistReview();
   }
 
   /** Get claims for payroll specialist review */
   @Get('claims/for-specialist-review')
+  @Roles(SystemRole.PAYROLL_SPECIALIST, SystemRole.PAYROLL_MANAGER)
   async getClaimsForSpecialistReview() {
     return this.payrollTrackingService.getClaimsForSpecialistReview();
   }
 
   /** Get disputes pending manager approval */
   @Get('disputes/for-manager-approval')
+  @Roles(SystemRole.PAYROLL_MANAGER, SystemRole.HR_MANAGER)
   async getDisputesForManagerApproval() {
     return this.payrollTrackingService.getDisputesForManagerApproval();
   }
 
   /** Get claims pending manager approval */
   @Get('claims/for-manager-approval')
+  @Roles(SystemRole.PAYROLL_MANAGER, SystemRole.HR_MANAGER)
   async getClaimsForManagerApproval() {
     return this.payrollTrackingService.getClaimsForManagerApproval();
   }
 
   /** Get approved records for finance staff visibility */
   @Get('finance/approved-records')
+  @Roles(SystemRole.FINANCE_STAFF, SystemRole.FINANCE_MANAGER)
   async getApprovedRecordsForFinance() {
     return this.payrollTrackingService.getApprovedRecordsForFinance();
   }
 
   /** Payroll Specialist: Approve dispute */
   @Post('dispute/:disputeId/specialist-approve')
+  @Roles(SystemRole.PAYROLL_SPECIALIST)
   async specialistApproveDispute(
     @Param('disputeId') disputeId: string,
     @Body('payrollSpecialistId') payrollSpecialistId: string,
@@ -103,6 +118,7 @@ export class PayrollTrackingController {
 
   /** Payroll Specialist: Reject dispute */
   @Post('dispute/:disputeId/specialist-reject')
+  @Roles(SystemRole.PAYROLL_SPECIALIST)
   async specialistRejectDispute(
     @Param('disputeId') disputeId: string,
     @Body('payrollSpecialistId') payrollSpecialistId: string,
@@ -119,6 +135,7 @@ export class PayrollTrackingController {
 
   /** Payroll Manager: Confirm dispute approval */
   @Post('dispute/:disputeId/manager-confirm')
+  @Roles(SystemRole.PAYROLL_MANAGER)
   async managerConfirmDispute(
     @Param('disputeId') disputeId: string,
     @Body('payrollManagerId') payrollManagerId: string,
@@ -137,6 +154,7 @@ export class PayrollTrackingController {
 
   /** Payroll Specialist: Approve expense claim */
   @Post('claim/:claimId/specialist-approve')
+  @Roles(SystemRole.PAYROLL_SPECIALIST)
   async specialistApproveClaim(
     @Param('claimId') claimId: string,
     @Body('payrollSpecialistId') payrollSpecialistId: string,
@@ -153,6 +171,7 @@ export class PayrollTrackingController {
 
   /** Payroll Specialist: Reject expense claim */
   @Post('claim/:claimId/specialist-reject')
+  @Roles(SystemRole.PAYROLL_SPECIALIST)
   async specialistRejectClaim(
     @Param('claimId') claimId: string,
     @Body('payrollSpecialistId') payrollSpecialistId: string,
@@ -169,6 +188,7 @@ export class PayrollTrackingController {
 
   /** Payroll Manager: Confirm claim approval */
   @Post('claim/:claimId/manager-confirm')
+  @Roles(SystemRole.PAYROLL_MANAGER)
   async managerConfirmClaim(
     @Param('claimId') claimId: string,
     @Body('payrollManagerId') payrollManagerId: string,
@@ -185,12 +205,14 @@ export class PayrollTrackingController {
 
   /** Finance Staff: Get all pending refunds */
   @Get('refunds/pending')
+  @Roles(SystemRole.FINANCE_STAFF, SystemRole.FINANCE_MANAGER)
   async getPendingRefunds() {
     return this.payrollTrackingService.getPendingRefunds();
   }
 
   /** Finance Staff: Mark refund as paid (when processed in payroll) */
   @Post('refund/:refundId/mark-paid')
+  @Roles(SystemRole.FINANCE_STAFF)
   async markRefundAsPaid(
     @Param('refundId') refundId: string,
     @Body('payrollRunId') payrollRunId: string,
@@ -200,6 +222,7 @@ export class PayrollTrackingController {
 
   /** Get refunds by payroll run */
   @Get('refunds/payroll-run/:payrollRunId')
+  @Roles(SystemRole.FINANCE_STAFF, SystemRole.FINANCE_MANAGER, SystemRole.PAYROLL_MANAGER)
   async getRefundsByPayrollRun(@Param('payrollRunId') payrollRunId: string) {
     return this.payrollTrackingService.getRefundsByPayrollRun(payrollRunId);
   }
@@ -207,21 +230,24 @@ export class PayrollTrackingController {
   /** EMPLOYEE SELF-SERVICE ENDPOINTS */
 
   /** Employee: View my disputes */
-@Get('employee/:employeeId/disputes')
-async getEmployeeDisputes(@Param('employeeId') employeeId: string) {
-  // Use a method that gets ALL disputes for the employee
-  return await this.payrollTrackingService.getEmployeeDisputes(employeeId);
-}
+  @Get('employee/:employeeId/disputes')
+  @Roles(SystemRole.EMPLOYEE, SystemRole.PAYROLL_SPECIALIST, SystemRole.PAYROLL_MANAGER, SystemRole.HR_MANAGER)
+  async getEmployeeDisputes(@Param('employeeId') employeeId: string) {
+    // Use a method that gets ALL disputes for the employee
+    return await this.payrollTrackingService.getEmployeeDisputes(employeeId);
+  }
 
-/** Employee: View my claims */
-@Get('employee/:employeeId/claims')
-async getEmployeeClaims(@Param('employeeId') employeeId: string) {
-  // Use a method that gets ALL claims for the employee
-  return await this.payrollTrackingService.getEmployeeClaims(employeeId);
-}
+  /** Employee: View my claims */
+  @Get('employee/:employeeId/claims')
+  @Roles(SystemRole.EMPLOYEE, SystemRole.PAYROLL_SPECIALIST, SystemRole.PAYROLL_MANAGER, SystemRole.HR_MANAGER)
+  async getEmployeeClaims(@Param('employeeId') employeeId: string) {
+    // Use a method that gets ALL claims for the employee
+    return await this.payrollTrackingService.getEmployeeClaims(employeeId);
+  }
 
   /** Employee: View my refunds */
   @Get('employee/:employeeId/refunds')
+  @Roles(SystemRole.EMPLOYEE, SystemRole.PAYROLL_SPECIALIST, SystemRole.PAYROLL_MANAGER, SystemRole.HR_MANAGER)
   async getEmployeeRefunds(@Param('employeeId') employeeId: string) {
     return this.payrollTrackingService.getEmployeeRefunds(employeeId);
   }
@@ -230,6 +256,7 @@ async getEmployeeClaims(@Param('employeeId') employeeId: string) {
 
   /** Generate payroll summary by department */
   @Get('reports/department-summary/:departmentId/:year/:month')
+  @Roles(SystemRole.PAYROLL_SPECIALIST, SystemRole.PAYROLL_MANAGER, SystemRole.HR_MANAGER, SystemRole.FINANCE_MANAGER)
   async getDepartmentSummary(
     @Param('departmentId') departmentId: string,
     @Param('year') year: string,
@@ -254,6 +281,7 @@ async getEmployeeClaims(@Param('employeeId') employeeId: string) {
 
   /** Get dispute statistics */
   @Get('reports/dispute-stats/:year/:month')
+  @Roles(SystemRole.PAYROLL_MANAGER, SystemRole.HR_MANAGER, SystemRole.FINANCE_MANAGER)
   async getDisputeStatistics(
     @Param('year') year: string,
     @Param('month') month: string,
@@ -275,6 +303,7 @@ async getEmployeeClaims(@Param('employeeId') employeeId: string) {
 
   /** Get claim statistics */
   @Get('reports/claim-stats/:year/:month')
+  @Roles(SystemRole.PAYROLL_MANAGER, SystemRole.HR_MANAGER, SystemRole.FINANCE_MANAGER)
   async getClaimStatistics(
     @Param('year') year: string,
     @Param('month') month: string,
@@ -298,5 +327,4 @@ async getEmployeeClaims(@Param('employeeId') employeeId: string) {
       approvalRate: claims.length > 0 ? (approvedClaims.length / claims.length) * 100 : 0
     };
   }
-
-  }
+}
