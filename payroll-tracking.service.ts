@@ -185,7 +185,7 @@ export class PayrollTrackingService {
       const dispute = await this.disputesModel.findById(disputeId);
       if (!dispute) throw new NotFoundException('Dispute not found');
 
-      if (dispute.status !== DisputeStatus.UNDER_REVIEW)
+      if (dispute.status !== DisputeStatus.APPROVED)
         throw new BadRequestException('Dispute is not under review');
 
       const payslip = await this.payslipModel.findById(dispute.payslipId);
@@ -205,7 +205,6 @@ export class PayrollTrackingService {
 
       await refund.save();
 
-      dispute.status = DisputeStatus.APPROVED;
       dispute.financeStaffId = new Types.ObjectId(financeStaffId);
       dispute.resolutionComment = `Refund approved: ${refundAmount}`;
       await dispute.save();
@@ -224,10 +223,9 @@ export class PayrollTrackingService {
       const claim = await this.claimsModel.findById(claimId);
       if (!claim) throw new NotFoundException('Claim not found');
 
-      if (claim.status !== ClaimStatus.UNDER_REVIEW)
+      if (claim.status !== ClaimStatus.APPROVED)
         throw new BadRequestException('Claim is not under review');
 
-      claim.status = ClaimStatus.APPROVED;
       claim.approvedAmount = claim.amount;
       claim.financeStaffId = new Types.ObjectId(financeStaffId);
       claim.resolutionComment = `Approved for payroll execution: ${claim.amount}`;
