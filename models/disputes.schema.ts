@@ -1,7 +1,7 @@
 
 import { Prop, Schema, SchemaFactory, } from '@nestjs/mongoose';
 import mongoose, { HydratedDocument } from 'mongoose';
-import {  EmployeeProfile as Employee} from '../../employee-profile/models/employee-profile.schema';
+import {  EmployeeProfile as Employee} from '../../employee-profile/Models/employee-profile.schema';
 import { DisputeStatus } from '../enums/payroll-tracking-enum';
 
 export type disputesDocument = HydratedDocument<disputes>
