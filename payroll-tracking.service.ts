@@ -8,24 +8,24 @@ import { InjectModel } from '@nestjs/mongoose';
 import {
   paySlip,
   PayslipDocument,
-} from '../payroll-execution/models/payslip.schema';
+} from '../payroll-execution/Models/payslip.schema';
 import {
   payrollRuns,
   payrollRunsDocument,
-} from 'src/payroll-execution/models/payrollRuns.schema';
+} from 'src/payroll-execution/Models/payrollRuns.schema';
 import {
   disputes,
   disputesDocument,
-} from '../payroll-tracking/models/disputes.schema';
+} from '../payroll-tracking/Models/disputes.schema';
 import {
   claims,
   claimsDocument,
-} from '../payroll-tracking/models/claims.schema';
+} from '../payroll-tracking/Models/claims.schema';
 import {
   refunds,
   refundsDocument,
   refundDetails,
-} from '../payroll-tracking/models/refunds.schema';
+} from '../payroll-tracking/Models/refunds.schema';
 import { Model, Types } from 'mongoose';
 import {
   DisputeStatus,
