@@ -12,11 +12,12 @@ import { PayrollExecutionModule } from '../payroll-execution/payroll-execution.m
   
   imports: [
     PayrollConfigurationModule,forwardRef(()=> PayrollExecutionModule),
+    PayrollExecutionModule,
     MongooseModule.forFeature([
       { name: refunds.name, schema: refundsSchema },
       { name: claims.name, schema: claimsSchema },
       { name: disputes.name, schema: disputesSchema },
-    ])],
+      ])],
   controllers: [PayrollTrackingController],
   providers: [PayrollTrackingService],
   exports:[PayrollTrackingService]
