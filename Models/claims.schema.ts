@@ -1,10 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import mongoose, { HydratedDocument } from 'mongoose';
-<<<<<<< HEAD:models/claims.schema.ts
-import { EmployeeProfile as Employee } from '../../employee-profile/Models/employee-profile.schema';
-=======
-import {  EmployeeProfile as Employee} from '../../employee-profile/Models/employee-profile.schema';
->>>>>>> ac7885bbfa6174a11eafbb5af395e64a4a29ee37:Models/claims.schema.ts
+import { EmployeeProfile as Employee} from '../../employee-profile/Models/employee-profile.schema';
 import { ClaimStatus } from '../enums/payroll-tracking-enum';
 
 export type claimsDocument = HydratedDocument<claims>;
