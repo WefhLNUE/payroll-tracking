@@ -400,6 +400,7 @@ export class PayrollTrackingService {
   async managerConfirmClaimApproval(
     claimId: string,
     payrollManagerId: string,
+    financeStaffId: string,
     comments?: string,
   ): Promise<claims> {
     try {
@@ -417,9 +418,10 @@ export class PayrollTrackingService {
 
       await claim.save();
 
+      // Notify finance staff that an approved claim is ready for refund creation
       await this.notificationService.createNotification(
-        payrollManagerId,
-        `Claim ${claim.claimId} has been approved. Please create a refund of ${claim.approvedAmount || claim.amount}`
+        financeStaffId,
+        `Claim ${claim.claimId} has been approved. Please create a refund of ${claim.approvedAmount || claim.amount}`,
       );
 
       await this.notificationService.createNotification(

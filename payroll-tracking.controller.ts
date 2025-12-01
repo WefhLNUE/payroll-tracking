@@ -210,11 +210,13 @@ export class PayrollTrackingController {
   async managerConfirmClaim(
     @Param('claimId') claimId: string,
     @Body('payrollManagerId') payrollManagerId: string,
+    @Body('financeStaffId') financeStaffId: string,
     @Body('comments') comments?: string,
   ) {
     return this.payrollTrackingService.managerConfirmClaimApproval(
       claimId,
       payrollManagerId,
+      financeStaffId,
       comments,
     );
   }
