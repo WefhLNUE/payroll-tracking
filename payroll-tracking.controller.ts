@@ -15,6 +15,7 @@ import {
 import { Roles } from '../auth/decorator/roles.decorator';
 import { SystemRole } from '../employee-profile/enums/employee-profile.enums';
 
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('payroll-tracking')
 export class PayrollTrackingController {
     constructor(private readonly payrollTrackingService:PayrollTrackingService) {}
