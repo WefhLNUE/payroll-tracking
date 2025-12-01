@@ -27,19 +27,20 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import {
-  PayslipDocument,
-} from 'src/payroll-execution/Models/payslip.schema';
-import {
   payrollRuns,
   payrollRunsDocument,
 } from 'src/payroll-execution/Models/payrollRuns.schema';
 import {
   refundDetails,
 } from './Models/refunds.schema';
+
 import {
   RefundStatus,
 } from './enums/payroll-tracking-enum';
 import { NotificationService } from 'src/time-management/services/notification.service';
+
+export type PayslipDocument = BasePayslipDocument & { createdAt: Date; updatedAt: Date };
+
 
 export interface FinanceReport {
   totalTaxes: number;
@@ -49,6 +50,8 @@ export interface FinanceReport {
   totalBonuses: number;
   numberOfEmployees: number;
 }
+
+
 @Injectable()
 export class PayrollTrackingService {
   constructor(
