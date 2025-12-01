@@ -68,7 +68,6 @@ export class PayrollTrackingService {
           match: { primaryDepartmentId: departmentId },
         });
 
-      // Filter out non-matching (employees not in this department)
       return results.filter((p) => p.employeeId);
     } catch (err) {
       throw new InternalServerErrorException(
@@ -200,7 +199,6 @@ export class PayrollTrackingService {
       
       await dispute.save();
 
-      // Notify payroll manager
       await this.notificationService.createNotification(
         payrollManagerId,
         `Dispute ${dispute.disputeId} requires your approval`
@@ -234,7 +232,6 @@ export class PayrollTrackingService {
       
       await dispute.save();
 
-      // Notify employee about rejection
       await this.notificationService.createNotification(
         dispute.employeeId.toString(),
         `Your dispute ${dispute.disputeId} has been rejected. Reason: ${rejectionReason}`
@@ -247,68 +244,96 @@ export class PayrollTrackingService {
   }
 
   /** Payroll Manager: Confirm dispute approval */
-async managerConfirmDisputeApproval(
-  disputeId: string,
-  payrollManagerId: string,
-  financeStaffId: string,
-  refundAmount: number,
-  comments?: string,
-): Promise<{ dispute: disputes; refund: refunds }> {
-  try {
-    const dispute = await this.disputesModel.findById(disputeId);
-    if (!dispute) throw new NotFoundException('Dispute not found');
+  async managerConfirmDisputeApproval(
+    disputeId: string,
+    payrollManagerId: string,
+    financeStaffId: string,
+    refundAmount: number,
+    comments?: string,
+  ): Promise<disputes> {
+    try {
+      const dispute = await this.disputesModel.findById(disputeId);
+      if (!dispute) throw new NotFoundException('Dispute not found');
 
-    if (dispute.status !== DisputeStatus.PENDING_MANAGER_APPROVAL) {
-      throw new BadRequestException('Dispute is not pending manager approval');
+      if (dispute.status !== DisputeStatus.PENDING_MANAGER_APPROVAL) {
+        throw new BadRequestException('Dispute is not pending manager approval');
+      }
+
+      if (!refundAmount || refundAmount <= 0) {
+        throw new BadRequestException('Refund amount must be greater than zero');
+      }
+
+      dispute.status = DisputeStatus.APPROVED;
+      dispute.payrollManagerId = new Types.ObjectId(payrollManagerId);
+      if (comments) {
+        dispute.resolutionComment += ` | Manager confirmed: ${comments}`;
+      }
+
+      await dispute.save();
+
+      await this.notificationService.createNotification(
+        financeStaffId,
+        `Dispute ${dispute.disputeId} has been approved. Please create a refund of ${refundAmount}`
+      );
+
+      await this.notificationService.createNotification(
+        dispute.employeeId.toString(),
+        `Your dispute ${dispute.disputeId} has been approved. Finance staff will process your refund of ${refundAmount}`
+      );
+
+      return dispute;
+    } catch (err) {
+      throw new InternalServerErrorException(`Failed to confirm dispute approval: ${err.message}`);
     }
-
-    // Validate refund amount 
-    if (!refundAmount || refundAmount <= 0) {
-      throw new BadRequestException('Refund amount must be greater than zero');
-    }
-
-    // Manager confirms approval
-    dispute.status = DisputeStatus.APPROVED;
-    dispute.payrollManagerId = new Types.ObjectId(payrollManagerId);
-    if (comments) {
-      dispute.resolutionComment += ` | Manager confirmed: ${comments}`;
-    }
-
-    await dispute.save();
-
-    // Create refund record for approved dispute 
-    const refund = new this.refundsModel({
-      disputeId: dispute._id,
-      employeeId: dispute.employeeId,
-      financeStaffId: new Types.ObjectId(financeStaffId),
-      refundDetails: {
-        description: `Refund for approved dispute ${dispute.disputeId}`,
-        amount: refundAmount,
-      } as refundDetails,
-      status: RefundStatus.PENDING,
-    });
-
-    await refund.save();
-
-    // Notify finance staff
-    await this.notifyFinanceStaff(dispute, refund);
-
-    // Notify employee about approval
-    await this.notificationService.createNotification(
-      dispute.employeeId.toString(),
-      `Your dispute ${dispute.disputeId} has been approved and is being processed for refund of ${refundAmount}`
-    );
-
-    return { dispute, refund };
-  } catch (err) {
-    throw new InternalServerErrorException(`Failed to confirm dispute approval: ${err.message}`);
   }
-}
+
+  /** Payroll Manager: Reject dispute */
+  async managerRejectDispute(
+    disputeId: string,
+    payrollManagerId: string,
+    rejectionReason: string,
+    comments?: string,
+  ): Promise<disputes> {
+    try {
+      const dispute = await this.disputesModel.findById(disputeId);
+      if (!dispute) throw new NotFoundException('Dispute not found');
+
+      if (dispute.status !== DisputeStatus.PENDING_MANAGER_APPROVAL) {
+        throw new BadRequestException('Dispute is not pending manager approval');
+      }
+
+      dispute.status = DisputeStatus.REJECTED;
+      dispute.payrollManagerId = new Types.ObjectId(payrollManagerId);
+      dispute.rejectionReason = rejectionReason;
+      dispute.resolutionComment = comments 
+        ? `${dispute.resolutionComment || ''} | Manager rejected: ${comments}`
+        : `${dispute.resolutionComment || ''} | Rejected by payroll manager`;
+      
+      await dispute.save();
+
+      await this.notificationService.createNotification(
+        dispute.employeeId.toString(),
+        `Your dispute ${dispute.disputeId} has been rejected by the payroll manager. Reason: ${rejectionReason}`
+      );
+
+      if (dispute.payrollSpecialistId) {
+        await this.notificationService.createNotification(
+          dispute.payrollSpecialistId.toString(),
+          `Dispute ${dispute.disputeId} you approved has been rejected by the manager. Reason: ${rejectionReason}`
+        );
+      }
+
+      return dispute;
+    } catch (err) {
+      throw new InternalServerErrorException(`Failed to reject dispute: ${err.message}`);
+    }
+  }
 
   /** Payroll Specialist: Approve claim (sends to manager for confirmation) */
   async specialistApproveClaim(
     claimId: string,
     payrollSpecialistId: string,
+    payrollManagerId: string,
     approvedAmount?: number,
     comments?: string,
   ): Promise<claims> {
@@ -327,9 +352,8 @@ async managerConfirmDisputeApproval(
       
       await claim.save();
 
-      // Notify payroll manager
       await this.notificationService.createNotification(
-        payrollSpecialistId, // In real scenario, get manager ID from org structure
+        payrollManagerId,
         `Claim ${claim.claimId} requires your approval`
       );
 
@@ -361,7 +385,6 @@ async managerConfirmDisputeApproval(
       
       await claim.save();
 
-      // Notify employee about rejection
       await this.notificationService.createNotification(
         claim.employeeId.toString(),
         `Your claim ${claim.claimId} has been rejected. Reason: ${rejectionReason}`
@@ -378,7 +401,7 @@ async managerConfirmDisputeApproval(
     claimId: string,
     payrollManagerId: string,
     comments?: string,
-  ): Promise<{ claim: claims; refund: refunds }> {
+  ): Promise<claims> {
     try {
       const claim = await this.claimsModel.findById(claimId);
       if (!claim) throw new NotFoundException('Claim not found');
@@ -389,38 +412,131 @@ async managerConfirmDisputeApproval(
 
       claim.status = ClaimStatus.APPROVED;
       claim.payrollManagerId = new Types.ObjectId(payrollManagerId);
-      if (comments) {
-        claim.resolutionComment += ` | Manager confirmed: ${comments}`;
-      }
+      claim.resolutionComment += ` | Manager confirmed: ${comments}`;
+      
 
       await claim.save();
 
-      // Create refund record for approved claim
-      const refund = new this.refundsModel({
-        claimId: claim._id,
-        employeeId: claim.employeeId,
-        financeStaffId: new Types.ObjectId(payrollManagerId),
-        refundDetails: {
-          description: `Refund for approved claim ${claim.claimId} - ${claim.claimType}`,
-          amount: claim.approvedAmount,
-        } as refundDetails,
-        status: RefundStatus.PENDING,
-      });
-
-      await refund.save();
-
-      // Notify finance staff
-      await this.notifyFinanceStaffForClaim(claim, refund);
-
-      // Notify employee about approval
       await this.notificationService.createNotification(
-        claim.employeeId.toString(),
-        `Your claim ${claim.claimId} has been approved and will be processed for refund of ${claim.approvedAmount}`
+        payrollManagerId,
+        `Claim ${claim.claimId} has been approved. Please create a refund of ${claim.approvedAmount || claim.amount}`
       );
 
-      return { claim, refund };
+      await this.notificationService.createNotification(
+        claim.employeeId.toString(),
+        `Your claim ${claim.claimId} has been approved. Finance staff will process your refund of ${claim.approvedAmount || claim.amount}`
+      );
+
+      return claim;
     } catch (err) {
       throw new InternalServerErrorException(`Failed to confirm claim approval: ${err.message}`);
+    }
+  }
+
+  /** Payroll Manager: Reject claim */
+  async managerRejectClaim(
+    claimId: string,
+    payrollManagerId: string,
+    rejectionReason: string,
+    comments?: string,
+  ): Promise<claims> {
+    try {
+      const claim = await this.claimsModel.findById(claimId);
+      if (!claim) throw new NotFoundException('Claim not found');
+
+      if (claim.status !== ClaimStatus.PENDING_MANAGER_APPROVAL) {
+        throw new BadRequestException('Claim is not pending manager approval');
+      }
+
+      claim.status = ClaimStatus.REJECTED;
+      claim.payrollManagerId = new Types.ObjectId(payrollManagerId);
+      claim.rejectionReason = rejectionReason;
+      claim.resolutionComment = comments 
+        ? `${claim.resolutionComment || ''} | Manager rejected: ${comments}`
+        : `${claim.resolutionComment || ''} | Rejected by payroll manager`;
+      
+      await claim.save();
+
+      await this.notificationService.createNotification(
+        claim.employeeId.toString(),
+        `Your claim ${claim.claimId} has been rejected by the payroll manager. Reason: ${rejectionReason}`
+      );
+
+      if (claim.payrollSpecialistId) {
+        await this.notificationService.createNotification(
+          claim.payrollSpecialistId.toString(),
+          `Claim ${claim.claimId} you approved has been rejected by the manager. Reason: ${rejectionReason}`
+        );
+      }
+
+      return claim;
+    } catch (err) {
+      throw new InternalServerErrorException(`Failed to reject claim: ${err.message}`);
+    }
+  }
+
+  /** Finance Staff: Create refund for approved dispute or claim */
+  async createRefund(
+    type: 'dispute' | 'claim',
+    recordId: string,
+    financeStaffId: string,
+    refundAmount: number,
+    description?: string,
+  ): Promise<refunds> {
+    try {
+      if (!refundAmount || refundAmount <= 0) {
+        throw new BadRequestException('Refund amount must be greater than zero');
+      }
+
+      let refundData: any = {
+        employeeId: null,
+        financeStaffId: new Types.ObjectId(financeStaffId),
+        refundDetails: {
+          description: description || `Refund`,
+          amount: refundAmount,
+        } as refundDetails,
+        status: RefundStatus.PENDING,
+      };
+
+      if (type === 'dispute') {
+        const dispute = await this.disputesModel.findById(recordId);
+        if (!dispute) throw new NotFoundException('Dispute not found');
+        
+        if (dispute.status !== DisputeStatus.APPROVED) {
+          throw new BadRequestException('Only approved disputes can have refunds created');
+        }
+
+        refundData.disputeId = dispute._id;
+        refundData.employeeId = dispute.employeeId;
+        refundData.refundDetails.description = description || `Refund for approved dispute ${dispute.disputeId}`;
+
+      } else if (type === 'claim') {
+        const claim = await this.claimsModel.findById(recordId);
+        if (!claim) throw new NotFoundException('Claim not found');
+        
+        if (claim.status !== ClaimStatus.APPROVED) {
+          throw new BadRequestException('Only approved claims can have refunds created');
+        }
+
+        refundData.claimId = claim._id;
+        refundData.employeeId = claim.employeeId;
+        refundData.refundDetails.description = description || `Refund for approved claim ${claim.claimId} - ${claim.claimType}`;
+
+      } else {
+        throw new BadRequestException('Type must be either "dispute" or "claim"');
+      }
+
+      const refund = new this.refundsModel(refundData);
+      await refund.save();
+
+      await this.notificationService.createNotification(
+        refundData.employeeId.toString(),
+        `A refund of ${refundAmount} has been created and will be processed in the next payroll`
+      );
+
+      return refund;
+    } catch (err) {
+      throw new InternalServerErrorException(`Failed to create refund: ${err.message}`);
     }
   }
 
@@ -510,7 +626,6 @@ async managerConfirmDisputeApproval(
       
       await refund.save();
 
-      // Notify employee that refund has been processed
       await this.notificationService.createNotification(
         refund.employeeId.toString(),
         `Your refund of ${refund.refundDetails.amount} has been processed and will be included in the next payroll`
@@ -541,40 +656,20 @@ async managerConfirmDisputeApproval(
       .populate('paidInPayrollRunId')
       .exec();
   }
+
   /** Get all disputes for an employee */
-async getEmployeeDisputes(employeeId: string): Promise<disputes[]> {
-  return this.disputesModel
-    .find({ employeeId: new Types.ObjectId(employeeId) })
-    .sort({ createdAt: -1 }) // Optional: sort by newest first
-    .exec();
-}
-
-/** Get all claims for an employee */
-async getEmployeeClaims(employeeId: string): Promise<claims[]> {
-  return this.claimsModel
-    .find({ employeeId: new Types.ObjectId(employeeId) })
-    .sort({ createdAt: -1 }) // Optional: sort by newest first
-    .exec();
-}
-
-  /** Private notification methods using existing NotificationService */
-  private async notifyFinanceStaff(dispute: disputes, refund: refunds): Promise<void> {
-    const message = `Dispute ${dispute.disputeId} has been approved and requires refund processing. Amount: ${refund.refundDetails.amount}`;
-    
-    // Send notification to finance staff
-    await this.notificationService.createNotification(
-      refund.financeStaffId.toString(),
-      message
-    );
+  async getEmployeeDisputes(employeeId: string): Promise<disputes[]> {
+    return this.disputesModel
+      .find({ employeeId: new Types.ObjectId(employeeId) })
+      .sort({ createdAt: -1 })
+      .exec();
   }
 
-  private async notifyFinanceStaffForClaim(claim: claims, refund: refunds): Promise<void> {
-    const message = `Claim ${claim.claimId} (${claim.claimType}) has been approved and requires refund processing. Amount: ${refund.refundDetails.amount}`;
-    
-    // Send notification to finance staff
-    await this.notificationService.createNotification(
-      refund.financeStaffId.toString(),
-      message
-    );
+  /** Get all claims for an employee */
+  async getEmployeeClaims(employeeId: string): Promise<claims[]> {
+    return this.claimsModel
+      .find({ employeeId: new Types.ObjectId(employeeId) })
+      .sort({ createdAt: -1 })
+      .exec();
   }
 }

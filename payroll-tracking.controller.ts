@@ -25,7 +25,6 @@ export class PayrollTrackingController {
 
   /** Get payslips by department */
   @Get('payslips/:departmentId/:payrollRunId')
-  @Roles(SystemRole.PAYROLL_SPECIALIST, SystemRole.PAYROLL_MANAGER, SystemRole.HR_MANAGER, SystemRole.FINANCE_STAFF)
   async getPayslipsByDepartment(
     @Param('departmentId') departmentId: string,
     @Param('payrollRunId') payrollRunId: string,
@@ -55,7 +54,7 @@ export class PayrollTrackingController {
 
   /** Generate finance report for a year */
   @Get('finance-report/:year')
-  @Roles(SystemRole.FINANCE_STAFF, SystemRole.FINANCE_STAFF, SystemRole.PAYROLL_MANAGER, SystemRole.HR_MANAGER)
+  @Roles(SystemRole.FINANCE_STAFF, SystemRole.PAYROLL_MANAGER, SystemRole.HR_MANAGER)
   async generateFinanceReport(
     @Param('year', ParseIntPipe) year: number,
   ): Promise<FinanceReport[]> {
@@ -94,7 +93,7 @@ export class PayrollTrackingController {
 
   /** Get approved records for finance staff visibility */
   @Get('finance/approved-records')
-  @Roles(SystemRole.FINANCE_STAFF, SystemRole.FINANCE_STAFF)
+  @Roles(SystemRole.FINANCE_STAFF)
   async getApprovedRecordsForFinance() {
     return this.payrollTrackingService.getApprovedRecordsForFinance();
   }
@@ -152,18 +151,37 @@ export class PayrollTrackingController {
     );
   }
 
+  /** Payroll Manager: Reject dispute */
+  @Post('dispute/:disputeId/manager-reject')
+  @Roles(SystemRole.PAYROLL_MANAGER)
+  async managerRejectDispute(
+    @Param('disputeId') disputeId: string,
+    @Body('payrollManagerId') payrollManagerId: string,
+    @Body('rejectionReason') rejectionReason: string,
+    @Body('comments') comments?: string,
+  ) {
+    return this.payrollTrackingService.managerRejectDispute(
+      disputeId,
+      payrollManagerId,
+      rejectionReason,
+      comments,
+    );
+  }
+
   /** Payroll Specialist: Approve expense claim */
   @Post('claim/:claimId/specialist-approve')
   @Roles(SystemRole.PAYROLL_SPECIALIST)
   async specialistApproveClaim(
     @Param('claimId') claimId: string,
     @Body('payrollSpecialistId') payrollSpecialistId: string,
+    @Body('payrollManagerId') payrollManagerId: string,
     @Body('approvedAmount') approvedAmount?: number,
     @Body('comments') comments?: string,
   ) {
     return this.payrollTrackingService.specialistApproveClaim(
       claimId,
       payrollSpecialistId,
+      payrollManagerId,
       approvedAmount,
       comments,
     );
@@ -201,11 +219,47 @@ export class PayrollTrackingController {
     );
   }
 
+  /** Payroll Manager: Reject claim */
+  @Post('claim/:claimId/manager-reject')
+  @Roles(SystemRole.PAYROLL_MANAGER)
+  async managerRejectClaim(
+    @Param('claimId') claimId: string,
+    @Body('payrollManagerId') payrollManagerId: string,
+    @Body('rejectionReason') rejectionReason: string,
+    @Body('comments') comments?: string,
+  ) {
+    return this.payrollTrackingService.managerRejectClaim(
+      claimId,
+      payrollManagerId,
+      rejectionReason,
+      comments,
+    );
+  }
+
+  /** Finance Staff: Create refund for approved dispute or claim */
+  @Post('refund/create')
+  @Roles(SystemRole.FINANCE_STAFF)
+  async createRefund(
+    @Body('type') type: 'dispute' | 'claim',
+    @Body('recordId') recordId: string,
+    @Body('financeStaffId') financeStaffId: string,
+    @Body('refundAmount') refundAmount: number,
+    @Body('description') description?: string,
+  ) {
+    return this.payrollTrackingService.createRefund(
+      type,
+      recordId,
+      financeStaffId,
+      refundAmount,
+      description,
+    );
+  }
+
   /** PHASE 4: REFUND PROCESS ENDPOINTS */
 
   /** Finance Staff: Get all pending refunds */
   @Get('refunds/pending')
-  @Roles(SystemRole.FINANCE_STAFF, SystemRole.FINANCE_STAFF)
+  @Roles(SystemRole.FINANCE_STAFF)
   async getPendingRefunds() {
     return this.payrollTrackingService.getPendingRefunds();
   }
@@ -222,7 +276,7 @@ export class PayrollTrackingController {
 
   /** Get refunds by payroll run */
   @Get('refunds/payroll-run/:payrollRunId')
-  @Roles(SystemRole.FINANCE_STAFF, SystemRole.FINANCE_STAFF, SystemRole.PAYROLL_MANAGER)
+  @Roles(SystemRole.FINANCE_STAFF, SystemRole.PAYROLL_MANAGER)
   async getRefundsByPayrollRun(@Param('payrollRunId') payrollRunId: string) {
     return this.payrollTrackingService.getRefundsByPayrollRun(payrollRunId);
   }
@@ -233,7 +287,6 @@ export class PayrollTrackingController {
   @Get('employee/:employeeId/disputes')
   @Roles(SystemRole.DEPARTMENT_EMPLOYEE, SystemRole.PAYROLL_SPECIALIST, SystemRole.PAYROLL_MANAGER, SystemRole.HR_MANAGER)
   async getEmployeeDisputes(@Param('employeeId') employeeId: string) {
-    // Use a method that gets ALL disputes for the employee
     return await this.payrollTrackingService.getEmployeeDisputes(employeeId);
   }
 
@@ -241,7 +294,6 @@ export class PayrollTrackingController {
   @Get('employee/:employeeId/claims')
   @Roles(SystemRole.DEPARTMENT_EMPLOYEE, SystemRole.PAYROLL_SPECIALIST, SystemRole.PAYROLL_MANAGER, SystemRole.HR_MANAGER)
   async getEmployeeClaims(@Param('employeeId') employeeId: string) {
-    // Use a method that gets ALL claims for the employee
     return await this.payrollTrackingService.getEmployeeClaims(employeeId);
   }
 
@@ -262,8 +314,6 @@ export class PayrollTrackingController {
     @Param('year') year: string,
     @Param('month') month: string,
   ) {
-    // This would generate a detailed payroll summary for a department
-    // Implementation depends on your specific reporting requirements
     const payrollRuns = await this.payrollTrackingService.findPayrollRunByMonth(month, year);
     const departmentPayslips = await Promise.all(
       payrollRuns.map(run => 
