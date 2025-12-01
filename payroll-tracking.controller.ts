@@ -156,7 +156,9 @@ async downloadTaxRules(@Res() res: Response) {
   stream.pipe(res);
 }
 
-
+@Post('expense-claims')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(SystemRole.DEPARTMENT_EMPLOYEE)
 async submitExpenseClaim(
   @Req() req,
   @Body() body: { description: string; claimType: string; amount: number }
@@ -172,6 +174,23 @@ async submitExpenseClaim(
   );
 }
 
+
+@Post('disputes')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(SystemRole.DEPARTMENT_EMPLOYEE)
+async submitPayrollDispute(
+  @Req() req,
+  @Body() body: { payslipId: string; description: string },
+) {
+  const userId = req.user.id;
+  const { payslipId, description } = body;
+
+  return this.payrollTrackingService.submitPayrollDispute(
+    userId,
+    payslipId,
+    description,
+  );
+}
 
 
 // View all claims for the logged-in employee

@@ -250,9 +250,10 @@ async viewBaseSalary(userId: string) {
     const employee = await this.employeeModel.findById(userId).exec();
     if (!employee) throw new NotFoundException('Employee not found');
 
-    // 2. Find all approved allowances related to transportation/commuting
+    // 2. Find all approved allowances related to transportation/commuting for THIS employee
     const transportAllowances = await this.allowanceModel.find({
       status: 'APPROVED', // only include approved allowances
+      employeeId: userId,
       name: { $regex: /transport|commute/i }, // case-insensitive match
     }).exec();
 
@@ -699,7 +700,41 @@ async getMyDisputes(userId: string) {
 }
 
 
+  // Employee submits a payroll dispute linked to a specific payslip
+  async submitPayrollDispute(
+    userId: string,
+    payslipId: string,
+    description: string,
+  ): Promise<{ message: string; disputeId: string; status: DisputeStatus }> {
+    // 1. Ensure payslip exists and belongs to this employee
+    const payslip = await this.payslipModel.findById(payslipId).exec();
+    if (!payslip) {
+      throw new NotFoundException('Payslip not found');
+    }
+    if (payslip.employeeId.toString() !== userId) {
+      throw new ForbiddenException('You cannot dispute this payslip');
+    }
 
+    // 2. Generate a human-friendly disputeId
+    const count = await this.disputeModel.countDocuments().exec();
+    const disputeId = `DISP-${(count + 1).toString().padStart(4, '0')}`;
 
+    // 3. Create dispute in UNDER_REVIEW status
+    const dispute = new this.disputeModel({
+      disputeId,
+      description,
+      employeeId: new Types.ObjectId(userId),
+      payslipId: payslip._id,
+      status: DisputeStatus.UNDER_REVIEW,
+    });
+
+    await dispute.save();
+
+    return {
+      message: 'Payroll dispute submitted successfully',
+      disputeId: dispute.disputeId,
+      status: dispute.status,
+    };
+  }
 
 }
