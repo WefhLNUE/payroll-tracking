@@ -1,20 +1,22 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import mongoose, { HydratedDocument } from 'mongoose';
+<<<<<<< HEAD:models/disputes.schema.ts
 import { EmployeeProfile as Employee } from '../../employee-profile/Models/employee-profile.schema';
-import { ClaimStatus } from '../enums/payroll-tracking-enum';
+=======
 
-export type claimsDocument = HydratedDocument<claims>;
+import {  EmployeeProfile as Employee} from '../../employee-profile/Models/employee-profile.schema';
+>>>>>>> ac7885bbfa6174a11eafbb5af395e64a4a29ee37:Models/disputes.schema.ts
+import { DisputeStatus } from '../enums/payroll-tracking-enum';
+
+export type disputesDocument = HydratedDocument<disputes>;
 
 @Schema({ timestamps: true })
-export class claims {
+export class disputes {
   @Prop({ required: true, unique: true })
-  claimId: string; // for frontend view purposes ex: CLAIM-0001
+  disputeId: string; // for frontend view purposes ex: DISP-0001
 
   @Prop({ required: true })
   description: string;
-
-  @Prop({ required: true })
-  claimType: string; // for example: medical, etc
 
   @Prop({
     type: mongoose.Schema.Types.ObjectId,
@@ -32,19 +34,20 @@ export class claims {
   @Prop({ type: mongoose.Schema.Types.ObjectId, ref: Employee.name })
   payrollManagerId?: mongoose.Types.ObjectId;
 
-  @Prop({ required: true })
-  amount: number;
-
-  @Prop({})
-  approvedAmount?: number;
+  @Prop({
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'paySlip',
+    required: true,
+  })
+  payslipId: mongoose.Types.ObjectId;
 
   @Prop({
     required: true,
     type: String,
-    enum: ClaimStatus,
-    default: ClaimStatus.UNDER_REVIEW,
+    enum: DisputeStatus,
+    default: DisputeStatus.UNDER_REVIEW,
   })
-  status: ClaimStatus; // under review,pending_manager_approval, approved, rejected
+  status: DisputeStatus; // under review,pending_manager_approval, approved, rejected
 
   @Prop()
   rejectionReason?: string;
@@ -53,4 +56,4 @@ export class claims {
   resolutionComment?: string;
 }
 
-export const claimsSchema = SchemaFactory.createForClass(claims);
+export const disputesSchema = SchemaFactory.createForClass(disputes);
