@@ -14,6 +14,14 @@ import { AttendanceCorrectionRequest, AttendanceCorrectionRequestDocument } from
 import { LatenessRule, LatenessRuleDocument } from '../time-management/Models/lateness-rule.schema';
 import { CorrectionRequestStatus } from '../time-management/Models/enums/index'; 
 import { insuranceBrackets, insuranceBracketsDocument } from '../payroll-configuration/Models/insuranceBrackets.schema';
+import { refunds, refundsDocument } from './Models/refunds.schema';
+import { taxRules,taxRulesDocument } from 'src/payroll-configuration/Models/taxRules.schema';
+import { PayrollConfigurationModule } from '../payroll-configuration/payroll-configuration.module';
+import { PayrollExecutionModule } from '../payroll-execution/payroll-execution.module';
+import { disputes,disputesDocument } from './Models/disputes.schema';
+import {DisputeStatus}from'./enums/payroll-tracking-enum'
+import { claims, claimsDocument } from './Models/claims.schema';
+import {ClaimStatus} from'./enums/payroll-tracking-enum'
 
 
 
@@ -33,6 +41,10 @@ export class PayrollTrackingService {
     @InjectModel(AttendanceCorrectionRequest.name) private correctionModel: Model<AttendanceCorrectionRequestDocument>,
     @InjectModel(LatenessRule.name) private latenessRuleModel: Model<LatenessRuleDocument>,
     @InjectModel(insuranceBrackets.name)private insuranceBracketModel: Model<insuranceBracketsDocument>,
+    @InjectModel(refunds.name) private readonly refundModel: Model<refundsDocument>,
+    @InjectModel(taxRules.name) private readonly taxRulesModel: Model<taxRulesDocument>, 
+    @InjectModel(disputes.name) private readonly disputeModel: Model<disputesDocument>,
+    @InjectModel(claims.name) private readonly claimsModel: Model<claimsDocument>,
 
   ) {}
 
@@ -136,8 +148,10 @@ async viewBaseSalary(userId: string) {
     if (!employee.payGradeId) throw new NotFoundException('Pay grade not assigned for employee');
   
     // 3. Populate pay grade
-    const payGrade = await this.payGradeModel.findById(employee.payGradeId).exec();
-    if (!payGrade) throw new NotFoundException('Pay grade not found');
+    const payGrade = await this.payGradeModel
+    .findOne({ _id: new Types.ObjectId(employee.payGradeId) })
+    .exec();
+      if (!payGrade) throw new NotFoundException('Pay grade not found');
   
     // 4. Determine multiplier based on contract type and work type
     let multiplier = 1; // default: full salary
@@ -551,8 +565,138 @@ async getSalaryHistory(userId: string) {
       allowances: allowanceDetails,
     };
   }
+
+
+
+
+
+async downloadTaxRulesPdf(): Promise<Stream> {
+  // Fetch all tax rules (you could filter by status if needed)
+  const taxRules = await this.taxRulesModel.find({ status: 'APPROVED' }).exec();
+  if (!taxRules.length) throw new NotFoundException('No tax rules available');
+
+  const doc = new PDFDocument({ size: 'A4', margin: 50 });
+  const stream = new PassThrough();
+  doc.pipe(stream);
+
+  // Header
+  doc.fontSize(22).text('Tax Rules', { align: 'center', underline: true });
+  doc.moveDown();
+
+  // Table header
+  doc.fontSize(14).text(`Name`, { continued: true, width: 200 });
+  doc.text(`Rate (%)`, { continued: true, width: 100 });
+  doc.text(`Status`, { width: 100 });
+  doc.moveDown();
+
+  // Tax rules details
+  taxRules.forEach((tax) => {
+    doc.fontSize(12).text(tax.name, { continued: true, width: 200 });
+    doc.text(`${tax.rate}`, { continued: true, width: 100 });
+    doc.text(tax.status, { width: 100 });
+    doc.moveDown(0.5);
+
+    if (tax.description) {
+      doc.fontSize(10).text(`Description: ${tax.description}`, { indent: 20 });
+      doc.moveDown(0.5);
+    }
+  });
+
+  // Footer
+  doc.moveDown();
+  doc.fontSize(10).text('This is a system-generated tax document.', { align: 'center' });
+
+  doc.end();
+  return stream;
+}
   
 
+
+
+
+
+
+async submitExpenseClaim(
+  userId: string,
+  description: string,
+  claimType: string,
+  amount: number
+): Promise<{ message: string; claimId: string; status: ClaimStatus }> {
+  // 1. Validate employee exists
+  const employee = await this.employeeModel.findById(userId).exec();
+  if (!employee) throw new NotFoundException('Employee not found');
+
+  // 2. Generate a unique claimId
+  const count = await this.claimsModel.countDocuments().exec();
+  const claimId = `CLAIM-${(count + 1).toString().padStart(4, '0')}`;
+
+  // 3. Create the claim
+  const claim = new this.claimsModel({
+    claimId,
+    description,
+    claimType,
+    amount,
+    employeeId: new Types.ObjectId(userId),
+    status: ClaimStatus.UNDER_REVIEW,
+  });
+
+  await claim.save();
+
+  return {
+    message: 'Expense claim submitted successfully',
+    claimId: claim.claimId,
+    status: claim.status,
+  };
+}
+
+
+
+async getMyClaims(userId: string) {
+  const claims = await this.claimsModel
+    .find({ employeeId: userId })
+    .sort({ createdAt: -1 })
+    .exec();
+
+  if (!claims.length) {
+    return { message: 'No claims found', claims: [] };
+  }
+
+  return claims.map(c => ({
+    claimId: c.claimId,
+    description: c.description,
+    claimType: c.claimType,
+    amount: c.amount,
+    approvedAmount: c.approvedAmount ?? null,
+    status: c.status,
+    rejectionReason: c.rejectionReason ?? null,
+    resolutionComment: c.resolutionComment ?? null,
+   
+  }));
+}
+
+
+async getMyDisputes(userId: string) {
+  const disputes = await this.disputeModel
+    .find({ employeeId: userId })
+    .sort({ createdAt: -1 })
+    .exec();
+
+  if (!disputes.length) {
+    return { message: 'No disputes found', disputes: [] };
+  }
+
+  return disputes.map(d => ({
+    disputeId: d.disputeId,
+    description: d.description,
+    status: d.status,
+    rejectionReason: d.rejectionReason ?? null,
+    resolutionComment: d.resolutionComment ?? null,
+    payrollSpecialistId: d.payrollSpecialistId ?? null,
+    payrollManagerId: d.payrollManagerId ?? null,
+    financeStaffId: d.financeStaffId ?? null,
+   
+  }));
+}
 
 
 
