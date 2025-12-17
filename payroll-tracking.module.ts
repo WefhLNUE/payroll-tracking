@@ -32,6 +32,10 @@ import {
   insuranceBrackets,
   insuranceBracketsSchema,
 } from '../payroll-configuration/Models/insuranceBrackets.schema';
+import {
+  taxRules,
+  taxRulesSchema,
+} from '../payroll-configuration/Models/taxRules.schema';
 import { ClaimStatus } from './enums/payroll-tracking-enum';
 // Modules
 import { forwardRef, Module } from '@nestjs/common';
@@ -76,6 +80,7 @@ import { SystemRole } from 'src/employee-profile/enums/employee-profile.enums';
       },
       { name: LatenessRule.name, schema: latenessRuleSchema },
       { name: insuranceBrackets.name, schema: insuranceBracketsSchema },
+      { name: taxRules.name, schema: taxRulesSchema },
       { name: refunds.name, schema: refundsSchema },
       { name: claims.name, schema: claimsSchema },
       { name: disputes.name, schema: disputesSchema },
