@@ -4,6 +4,10 @@ import {
   EmployeeProfileSchema,
 } from 'src/employee-profile/Models/employee-profile.schema';
 import {
+  EmployeeSystemRole,
+  EmployeeSystemRoleSchema,
+} from 'src/employee-profile/Models/employee-system-role.schema';
+import {
   payGrade,
   payGradeSchema,
 } from '../payroll-configuration/Models/payGrades.schema';
@@ -32,11 +36,7 @@ import {
   insuranceBrackets,
   insuranceBracketsSchema,
 } from '../payroll-configuration/Models/insuranceBrackets.schema';
-import {
-  taxRules,
-  taxRulesSchema,
-} from '../payroll-configuration/Models/taxRules.schema';
-import { ClaimStatus } from './enums/payroll-tracking-enum';
+
 // Modules
 import { forwardRef, Module } from '@nestjs/common';
 import { PayrollTrackingController } from './payroll-tracking.controller';
@@ -46,7 +46,6 @@ import { refunds, refundsSchema } from './Models/refunds.schema';
 import {
   paySlip,
   paySlipSchema,
-  PayslipDocument,
 } from 'src/payroll-execution/Models/payslip.schema';
 import {
   payrollRuns,
@@ -57,9 +56,7 @@ import { disputes, disputesSchema } from './Models/disputes.schema';
 import { PayrollConfigurationModule } from '../payroll-configuration/payroll-configuration.module';
 import { PayrollExecutionModule } from '../payroll-execution/payroll-execution.module';
 import { TimeManagementModule } from 'src/time-management/time-management.module';
-import { SystemRole } from 'src/employee-profile/enums/employee-profile.enums';
-//import { NotificationService } from 'src/time-management/services/notification.service';
-
+import { NotificationLog, NotificationLogSchema } from 'src/time-management/Models/notification-log.schema';
 @Module({
   imports: [
     PayrollConfigurationModule,
@@ -69,6 +66,7 @@ import { SystemRole } from 'src/employee-profile/enums/employee-profile.enums';
     MongooseModule.forFeature([
       { name: paySlip.name, schema: paySlipSchema },
       { name: EmployeeProfile.name, schema: EmployeeProfileSchema },
+      { name: EmployeeSystemRole.name, schema: EmployeeSystemRoleSchema }, 
       { name: payGrade.name, schema: payGradeSchema },
       { name: LeaveEntitlement.name, schema: LeaveEntitlementSchema },
       { name: LeaveType.name, schema: LeaveTypeSchema },
@@ -80,17 +78,18 @@ import { SystemRole } from 'src/employee-profile/enums/employee-profile.enums';
       },
       { name: LatenessRule.name, schema: latenessRuleSchema },
       { name: insuranceBrackets.name, schema: insuranceBracketsSchema },
-      { name: taxRules.name, schema: taxRulesSchema },
       { name: refunds.name, schema: refundsSchema },
       { name: claims.name, schema: claimsSchema },
       { name: disputes.name, schema: disputesSchema },
       { name: payrollRuns.name, schema: payrollRunsSchema },
+      { name: NotificationLog.name, schema: NotificationLogSchema },
+
     ]),
-    PayrollConfigurationModule,
-    forwardRef(() => PayrollExecutionModule),
   ],
   controllers: [PayrollTrackingController],
-  providers: [PayrollTrackingService],
+  providers: [
+    PayrollTrackingService,
+  ],
   exports: [PayrollTrackingService],
 })
 export class PayrollTrackingModule {}
