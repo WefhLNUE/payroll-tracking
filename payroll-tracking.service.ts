@@ -147,27 +147,15 @@ export class PayrollTrackingService {
   ) {}
 
   // employee view their most recent payslip
-  async viewMyPayslip(userId: string): Promise<any[]> {
-    const payslips = await this.payslipModel
-      .find({ employeeId: new Types.ObjectId(userId) })
+  async viewMyPayslip(userId: string): Promise<paySlip> {
+    const payslip = await this.payslipModel
+      .findOne({ employeeId: new Types.ObjectId(userId) })
       .sort({ createdAt: -1 }) // most recent first
       .exec();
 
-    // Map _id to payslipId for frontend compatibility
-    return payslips.map((payslip) => ({
-      ...payslip.toObject(),
-      payslipId: payslip._id.toString(),
-      month: payslip.createdAt
-        ? new Date(payslip.createdAt).getMonth() + 1
-        : null,
-      year: payslip.createdAt
-        ? new Date(payslip.createdAt).getFullYear()
-        : null,
-      netPay: `$${payslip.netPay.toFixed(2)}`,
-      createdAt: payslip.createdAt
-        ? new Date(payslip.createdAt).toDateString()
-        : new Date().toDateString(),
-    }));
+    if (!payslip) throw new NotFoundException('No payslip available');
+
+    return payslip;
   }
 
   //employee downloads his/her payslip for the current month(REQ-PY-1)
@@ -897,77 +885,97 @@ export class PayrollTrackingService {
   //View any salary deductions due to misconduct or unapproved absenteeism (REQ-PY-10)// View salary deductions due to misconduct or unapproved absenteeism (REQ-PY-10)
 
   async calculateUnpaidLeaveDeductions(employeeId: string) {
-    // 1. Fetch the employee + pay grade
-    // Using .lean() as a best practice for reading data
+    const WORKING_DAYS_PER_MONTH = 22;
+  
+    // 1. Fetch employee with pay grade
     const employee = await this.employeeModel
       .findById(employeeId)
       .populate('payGradeId')
       .lean()
       .exec();
-
+  
     if (!employee) {
       throw new Error('Employee not found');
     }
-
-    // 2. Safely get base salary and daily rate
-    const payGrade = employee.payGradeId;
-
-    // Use TypeScript 'unknown' cast to safely handle the fact that
-    // 'payGradeId' might be a plain ObjectId (string) if population failed,
-    // or the full document object if population succeeded.
-    const populatedPayGrade = payGrade as unknown as
-      | { baseSalary: number }
+  
+    // 2. Extract base salary safely
+    const payGrade = employee.payGradeId as
+      | { baseSalary?: number }
       | null
       | undefined;
-
-    // Safely extract baseSalary. It defaults to 0 if payGrade is null, unpopulated,
-    // or missing the baseSalary property.
-    const baseSalary = populatedPayGrade?.baseSalary ?? 0;
-
-    // Check if the base salary is 0 (meaning population failed or data is missing)
+  
+    const baseSalary = payGrade?.baseSalary ?? 0;
+  
     if (baseSalary === 0) {
       console.warn(
-        `[DEDUCTION WARNING] Pay Grade (ID: ${employee.payGradeId}) could not be populated or baseSalary is 0 for employee ${employeeId}. Unpaid leave deduction calculated as 0.`,
+        `[DEDUCTION WARNING] Pay Grade could not be populated or baseSalary is 0 for employee ${employeeId}.`,
       );
-      // Continue with calculation, but dailyRate will be 0
     }
-
-    const dailyRate = baseSalary / 22; // assume 22 working days/month
-
+  
+    const dailyRate = baseSalary / WORKING_DAYS_PER_MONTH;
+  
     // 3. Fetch employee leave entitlements
     const entitlements = await this.leaveEntitlementModel
       .find({ employeeId })
+      .lean()
       .exec();
-
-    // 4. Fetch only deductible leave types
+  
+    // 4. Fetch deductible leave types
     const leaveTypes = await this.leaveTypeModel
       .find({ deductible: true })
-      .select('name paid deductible')
+      .select('_id name paid')
+      .lean()
       .exec();
-
-    // 5. Filter unpaid leave & calculate deductions
+  
+    // 5. Build lookup map for leave types
+    const leaveTypeMap = new Map(
+      leaveTypes.map((lt) => [lt._id.toString(), lt]),
+    );
+  
+    // 6. Calculate unpaid leave deductions
     const details = entitlements
-      .filter((ent) => {
-        const leaveType = leaveTypes.find((l) => l._id.equals(ent.leaveTypeId));
-        // Filter: Leave Type must exist AND must be unpaid (!leaveType.paid)
-        return leaveType && !leaveType.paid;
-      })
       .map((ent) => {
-        const leaveType = leaveTypes.find((l) => l._id.equals(ent.leaveTypeId));
+        const leaveType = leaveTypeMap.get(ent.leaveTypeId.toString());
+  
+        // Skip if leave type is missing or paid
+        if (!leaveType || leaveType.paid) {
+          return null;
+        }
+  
         const daysTaken = ent.taken ?? 0;
         const amount = daysTaken * dailyRate;
-
+  
         return {
-          leaveType: leaveType?.name ?? 'Unknown',
+          leaveType: leaveType.name,
           daysTaken,
           dailyRate: Number(dailyRate.toFixed(2)),
           amount: Number(amount.toFixed(2)),
         };
-      });
-
-    const totalDeductions = details.reduce((sum, d) => sum + d.amount, 0);
-
+      })
+      .filter(Boolean) as {
+      leaveType: string;
+      daysTaken: number;
+      dailyRate: number;
+      amount: number;
+    }[];
+  
+    // 7. Totals
+    const unpaidDaysTotal = details.reduce(
+      (sum, d) => sum + d.daysTaken,
+      0,
+    );
+  
+    const totalDeductions = details.reduce(
+      (sum, d) => sum + d.amount,
+      0,
+    );
+  
+    // 8. Final response
     return {
+      baseSalary,
+      workingDays: WORKING_DAYS_PER_MONTH,
+      dailyRate: Number(dailyRate.toFixed(2)),
+      unpaidDaysTotal,
       totalDeductions: Number(totalDeductions.toFixed(2)),
       details,
     };

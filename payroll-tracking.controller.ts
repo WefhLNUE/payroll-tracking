@@ -108,13 +108,6 @@ export class PayrollTrackingController {
   ): Promise<PayrollDeduction[]> {
     const userId = req.user.id;
 
-    // Manual conversion from query string to Date object
-    //const startDate = new Date(startDateString);
-    //const endDate = new Date(endDateString);
-
-    // NOTE: In this non-DTO approach, you lose the automatic validation provided
-    // by class-validator (e.g., ensuring it's a valid date format).
-    // You may need to add manual validation here using a try...catch or checks.
 
     return this.payrollTrackingService.calculateMisconductAbsenceDeductions(
       userId,
