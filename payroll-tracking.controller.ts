@@ -103,14 +103,14 @@ export class PayrollTrackingController {
   @Roles(SystemRole.DEPARTMENT_EMPLOYEE)
   async getMyDeductions(
     @Req() req,
-    @Query('startDate') startDateString: string, // Directly extract 'startDate'
-    @Query('endDate') endDateString: string, // Directly extract 'endDate'
+    //@Query('startDate') startDateString: string, // Directly extract 'startDate'
+    //@Query('endDate') endDateString: string, // Directly extract 'endDate'
   ): Promise<PayrollDeduction[]> {
     const userId = req.user.id;
 
     // Manual conversion from query string to Date object
-    const startDate = new Date(startDateString);
-    const endDate = new Date(endDateString);
+    //const startDate = new Date(startDateString);
+    //const endDate = new Date(endDateString);
 
     // NOTE: In this non-DTO approach, you lose the automatic validation provided
     // by class-validator (e.g., ensuring it's a valid date format).
@@ -118,8 +118,6 @@ export class PayrollTrackingController {
 
     return this.payrollTrackingService.calculateMisconductAbsenceDeductions(
       userId,
-      startDate,
-      endDate,
     );
   }
 
@@ -170,7 +168,6 @@ export class PayrollTrackingController {
     @Body() body: { description: string; claimType: string; amount: number },
   ) {
     const userId = req.user.id; // Extracted automatically from JWT
-    console.log('userID ', userId);
     const { description, claimType, amount } = body;
 
     return this.payrollTrackingService.submitExpenseClaim(
@@ -213,7 +210,6 @@ export class PayrollTrackingController {
   @Roles(SystemRole.DEPARTMENT_EMPLOYEE)
   async getMyDisputes(@Req() req) {
     const userId = req.user.id;
-    console.log('Fetching disputes for user ID:', req);
     return this.payrollTrackingService.getMyDisputes(userId);
   }
 

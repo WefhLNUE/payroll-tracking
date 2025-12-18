@@ -77,7 +77,6 @@ import {
 import { SystemRole } from '../employee-profile/enums/employee-profile.enums';
 import { NotificationLogDocument } from 'src/time-management/Models/notification-log.schema';
 
-
 export type PayslipDocument = BasePayslipDocument & {
   createdAt: Date;
   updatedAt: Date;
@@ -142,9 +141,9 @@ export class PayrollTrackingService {
     @InjectModel(disputes.name)
     private readonly disputeModel: Model<disputesDocument>,
     @InjectModel(EmployeeSystemRole.name)
-  private readonly employeeSystemRoleModel: Model<EmployeeSystemRoleDocument>,
-  @InjectModel('NotificationLog')
-private readonly notificationLogModel: Model<NotificationLogDocument>,
+    private readonly employeeSystemRoleModel: Model<EmployeeSystemRoleDocument>,
+    @InjectModel('NotificationLog')
+    private readonly notificationLogModel: Model<NotificationLogDocument>,
   ) {}
 
   // employee view their most recent payslip
@@ -171,218 +170,330 @@ private readonly notificationLogModel: Model<NotificationLogDocument>,
     }));
   }
 
+  //employee downloads his/her payslip for the current month(REQ-PY-1)
+  async downloadRecentPayslipPdf(userId: string): Promise<Stream> {
+    // 1. Find the most recent payslip
+    const payslip = await this.payslipModel
+      .findOne({ employeeId: new Types.ObjectId(userId) })
+      .sort({ createdAt: -1 }) // latest first
+      .exec();
 
-//employee downloads his/her payslip for the current month(REQ-PY-1)
-async downloadRecentPayslipPdf(userId: string): Promise<Stream> {
-  // 1. Find the most recent payslip
-  const payslip = await this.payslipModel
-    .findOne({ employeeId: new Types.ObjectId(userId) })
-    .sort({ createdAt: -1 }) // latest first
-    .exec();
+    if (!payslip) throw new NotFoundException('No payslip available');
 
-  if (!payslip) throw new NotFoundException('No payslip available');
+    const doc = new PDFDocument({ size: 'A4', margin: 50 });
+    const stream = new PassThrough();
+    doc.pipe(stream);
 
-  const doc = new PDFDocument({ size: 'A4', margin: 50 });
-  const stream = new PassThrough();
-  doc.pipe(stream);
+    // Initialize Y position tracking variable
+    let currentY = doc.y;
+    const startX = 50;
+    const xValue = 350;
+    const valueWidth = 200;
+    const rowHeight = 18; // Reduced row height for tighter packing
+    const bottomMargin = 50;
 
-  // Initialize Y position tracking variable
-  let currentY = doc.y;
-  const startX = 50;
-  const xValue = 350;
-  const valueWidth = 200;
-  const rowHeight = 18; // Reduced row height for tighter packing
-  const bottomMargin = 50; 
+    // =========================================================================
+    // 1. HEADER SECTION
+    // =========================================================================
+    doc
+      .fontSize(24)
+      .fillColor('#2C3E50')
+      .text('Payroll Statement', { align: 'center' });
+    currentY = doc.y;
 
-  // =========================================================================
-  // 1. HEADER SECTION
-  // =========================================================================
-  doc.fontSize(24).fillColor('#2C3E50').text('Payroll Statement', { align: 'center' });
-  currentY = doc.y;
+    // Separator line
+    doc
+      .strokeColor('#BDC3C7')
+      .lineWidth(1)
+      .moveTo(startX, currentY)
+      .lineTo(550, currentY)
+      .stroke();
+    currentY += 15; // Reduced spacing
 
-  // Separator line
-  doc.strokeColor('#BDC3C7').lineWidth(1).moveTo(startX, currentY).lineTo(550, currentY).stroke();
-  currentY += 15; // Reduced spacing
+    // =========================================================================
+    // 2. EMPLOYEE & PAYSLIP INFO
+    // =========================================================================
+    doc.fontSize(10).fillColor('#34495E'); // Smaller font for info section
+    doc.text('Employee Information:', startX, currentY, { underline: true });
+    currentY += 15;
 
-  // =========================================================================
-  // 2. EMPLOYEE & PAYSLIP INFO
-  // =========================================================================
-  doc.fontSize(10).fillColor('#34495E'); // Smaller font for info section
-  doc.text('Employee Information:', startX, currentY, { underline: true });
-  currentY += 15;
+    // Row 1: Employee ID & Payslip ID
+    doc.text(
+      `Employee ID: ${payslip.employeeId.toString()}`,
+      startX,
+      currentY,
+      { continued: true },
+    );
+    doc.text(`Payslip ID: ${payslip._id.toString()}`, xValue, currentY, {
+      width: valueWidth,
+      align: 'right',
+    });
+    currentY += rowHeight;
 
-  // Row 1: Employee ID & Payslip ID
-  doc.text(`Employee ID: ${payslip.employeeId.toString()}`, startX, currentY, { continued: true });
-  doc.text(`Payslip ID: ${payslip._id.toString()}`, xValue, currentY, { width: valueWidth, align: 'right' });
-  currentY += rowHeight;
+    // Row 2: Payroll Period
+    doc.text(
+      `Payroll Period: ${payslip.createdAt?.toDateString() ?? 'N/A'}`,
+      startX,
+      currentY,
+    );
+    currentY += 20; // Tighter spacing
 
-  // Row 2: Payroll Period
-  doc.text(`Payroll Period: ${payslip.createdAt?.toDateString() ?? 'N/A'}`, startX, currentY);
-  currentY += 20; // Tighter spacing
+    // =========================================================================
+    // 3. DETAILED EARNINGS SECTION
+    // =========================================================================
+    doc
+      .fontSize(14)
+      .fillColor('#34495E')
+      .text('I. Detailed Earnings', startX, currentY, { underline: true }); // Smaller font for section title
+    currentY += 20; // Reduced spacing
 
-  // =========================================================================
-  // 3. DETAILED EARNINGS SECTION
-  // =========================================================================
-  doc.fontSize(14).fillColor('#34495E').text('I. Detailed Earnings', startX, currentY, { underline: true }); // Smaller font for section title
-  currentY += 20; // Reduced spacing
+    // --- Base Salary ---
+    doc
+      .fontSize(11)
+      .fillColor('#34495E')
+      .text('Base Salary:', startX, currentY);
+    doc
+      .fillColor('#16A085')
+      .text(
+        `$${Number(payslip.earningsDetails.baseSalary ?? 0).toFixed(2)}`,
+        xValue,
+        currentY,
+        { width: valueWidth, align: 'right' },
+      );
+    currentY += 20;
 
-  // --- Base Salary ---
-  doc.fontSize(11).fillColor('#34495E').text('Base Salary:', startX, currentY);
-  doc.fillColor('#16A085').text(`$${Number(payslip.earningsDetails.baseSalary ?? 0).toFixed(2)}`, xValue, currentY, { width: valueWidth, align: 'right' });
-  currentY += 20;
-
-  // --- Unified Detail Table Renderer ---
-  const renderDetailTable = (data: any[] | undefined, title: string, isAmount: boolean) => {
+    // --- Unified Detail Table Renderer ---
+    const renderDetailTable = (
+      data: any[] | undefined,
+      title: string,
+      isAmount: boolean,
+    ) => {
       if (!data || data.length === 0) return;
 
       currentY += 10;
-      doc.fontSize(12).fillColor('#34495E').text(title, startX, currentY, { underline: true }); // Sub-section title
+      doc
+        .fontSize(12)
+        .fillColor('#34495E')
+        .text(title, startX, currentY, { underline: true }); // Sub-section title
       currentY += 15; // Reduced spacing
 
       const colWidths = [200, 150, 100];
       const valueHeader = isAmount ? 'Amount ($)' : 'Rate (%)';
-      const valueColor = isAmount ? '#16A085' : '#E74C3C'; 
+      const valueColor = isAmount ? '#16A085' : '#E74C3C';
 
       // Headers
       doc.fontSize(9).fillColor('#2C3E50'); // Smallest font for headers
       doc.text('Name', startX, currentY);
       doc.text('Details', startX + colWidths[0], currentY);
-      doc.text(valueHeader, startX + colWidths[0] + colWidths[1], currentY, { align: 'right', width: colWidths[2] });
+      doc.text(valueHeader, startX + colWidths[0] + colWidths[1], currentY, {
+        align: 'right',
+        width: colWidths[2],
+      });
       currentY += 12;
 
       // Separator
-      doc.strokeColor('#BDC3C7').lineWidth(0.5).moveTo(startX, currentY).lineTo(startX + colWidths[0] + colWidths[1] + colWidths[2], currentY).stroke();
+      doc
+        .strokeColor('#BDC3C7')
+        .lineWidth(0.5)
+        .moveTo(startX, currentY)
+        .lineTo(startX + colWidths[0] + colWidths[1] + colWidths[2], currentY)
+        .stroke();
       currentY += 5;
 
       // Rows
       doc.fontSize(9).fillColor('#34495E');
-      data.forEach(item => {
-          const value = isAmount ? item.amount : (item.rate !== undefined ? item.rate : item.employeeRate);
-          
-          if (value === undefined) return;
+      data.forEach((item) => {
+        const value = isAmount
+          ? item.amount
+          : item.rate !== undefined
+            ? item.rate
+            : item.employeeRate;
 
-          let descOrDetails = item.description || item.status || '';
-          if (item.minSalary !== undefined && item.maxSalary !== undefined) {
-              descOrDetails = `Salary: $${item.minSalary.toFixed(0)} - $${item.maxSalary.toFixed(0)}`;
-          }
+        if (value === undefined) return;
 
-          const formattedValue = isAmount ? `$${Number(value).toFixed(2)}` : `${Number(value).toFixed(2)}%`;
+        let descOrDetails = item.description || item.status || '';
+        if (item.minSalary !== undefined && item.maxSalary !== undefined) {
+          descOrDetails = `Salary: $${item.minSalary.toFixed(0)} - $${item.maxSalary.toFixed(0)}`;
+        }
 
-          // Page Break Check
-          if (currentY + rowHeight > doc.page.height - bottomMargin) {
-               doc.addPage();
-               currentY = doc.y;
-          }
+        const formattedValue = isAmount
+          ? `$${Number(value).toFixed(2)}`
+          : `${Number(value).toFixed(2)}%`;
 
-          doc.text(item.name || 'N/A', startX, currentY);
-          doc.text(descOrDetails, startX + colWidths[0], currentY);
-          doc.fillColor(valueColor).text(formattedValue, startX + colWidths[0] + colWidths[1], currentY, { align: 'right', width: colWidths[2] });
-          doc.fillColor('#34495E');
-          
-          currentY += rowHeight;
+        // Page Break Check
+        if (currentY + rowHeight > doc.page.height - bottomMargin) {
+          doc.addPage();
+          currentY = doc.y;
+        }
+
+        doc.text(item.name || 'N/A', startX, currentY);
+        doc.text(descOrDetails, startX + colWidths[0], currentY);
+        doc
+          .fillColor(valueColor)
+          .text(
+            formattedValue,
+            startX + colWidths[0] + colWidths[1],
+            currentY,
+            { align: 'right', width: colWidths[2] },
+          );
+        doc.fillColor('#34495E');
+
+        currentY += rowHeight;
       });
 
       currentY += 5; // Reduced space after table
-  };
+    };
 
-  // --- Earnings Details ---
-  renderDetailTable(payslip.earningsDetails.allowances as any[], 'Allowances Breakdown', true);
-  renderDetailTable(payslip.earningsDetails.bonuses as any[], 'Signing Bonuses', true);
-  renderDetailTable(payslip.earningsDetails.benefits as any[], 'Termination/Resignation Benefits', true);
-  renderDetailTable(payslip.earningsDetails.refunds as any[], 'Refunds', true);
+    // --- Earnings Details ---
+    renderDetailTable(
+      payslip.earningsDetails.allowances as any[],
+      'Allowances Breakdown',
+      true,
+    );
+    renderDetailTable(
+      payslip.earningsDetails.bonuses as any[],
+      'Signing Bonuses',
+      true,
+    );
+    renderDetailTable(
+      payslip.earningsDetails.benefits as any[],
+      'Termination/Resignation Benefits',
+      true,
+    );
+    renderDetailTable(
+      payslip.earningsDetails.refunds as any[],
+      'Refunds',
+      true,
+    );
 
-  // =========================================================================
-  // 4. DETAILED DEDUCTIONS SECTION
-  // =========================================================================
-  currentY += 20; // Tighter space before new major section
-  
-  // Page Break Check for Deductions Section Header
-  if (currentY + 60 > doc.page.height - bottomMargin) {
-       doc.addPage();
-       currentY = doc.y;
-  }
-  
-  doc.fontSize(14).fillColor('#34495E').text('II. Detailed Deductions', startX, currentY, { underline: true });
-  currentY += 20;
+    // =========================================================================
+    // 4. DETAILED DEDUCTIONS SECTION
+    // =========================================================================
+    currentY += 20; // Tighter space before new major section
 
-  // --- Deductions Details ---
-  renderDetailTable(payslip.deductionsDetails.taxes as any[], 'Taxes Breakdown', false);
-  renderDetailTable(payslip.deductionsDetails.insurances as any[], 'Insurance Contributions', false);
+    // Page Break Check for Deductions Section Header
+    if (currentY + 60 > doc.page.height - bottomMargin) {
+      doc.addPage();
+      currentY = doc.y;
+    }
 
-  // --- Penalties ---
-  const penaltiesList = (payslip.deductionsDetails.penalties as any)?.penalties;
-  
-  if (penaltiesList && penaltiesList.length > 0) {
+    doc
+      .fontSize(14)
+      .fillColor('#34495E')
+      .text('II. Detailed Deductions', startX, currentY, { underline: true });
+    currentY += 20;
+
+    // --- Deductions Details ---
+    renderDetailTable(
+      payslip.deductionsDetails.taxes as any[],
+      'Taxes Breakdown',
+      false,
+    );
+    renderDetailTable(
+      payslip.deductionsDetails.insurances as any[],
+      'Insurance Contributions',
+      false,
+    );
+
+    // --- Penalties ---
+    const penaltiesList = (payslip.deductionsDetails.penalties as any)
+      ?.penalties;
+
+    if (penaltiesList && penaltiesList.length > 0) {
       renderDetailTable(penaltiesList, 'Penalties Applied', true);
-  } else {
-       currentY += 10;
-       doc.fontSize(11).fillColor('#34495E').text('Penalties Applied:', startX, currentY, { continued: true });
-       doc.fillColor('#2ECC71').text('None', xValue, currentY, { width: valueWidth, align: 'right' });
-       currentY += 15;
-  }
+    } else {
+      currentY += 10;
+      doc
+        .fontSize(11)
+        .fillColor('#34495E')
+        .text('Penalties Applied:', startX, currentY, { continued: true });
+      doc
+        .fillColor('#2ECC71')
+        .text('None', xValue, currentY, { width: valueWidth, align: 'right' });
+      currentY += 15;
+    }
 
+    // =========================================================================
+    // 5. FINANCIAL SUMMARY (Totals)
+    // =========================================================================
+    currentY += 20; // Tighter space after deductions
 
-  // =========================================================================
-  // 5. FINANCIAL SUMMARY (Totals)
-  // =========================================================================
-  currentY += 20; // Tighter space after deductions
+    // Check if the summary can fit (5 rows + Net Pay Box + Footer ~ 100 points)
+    if (currentY + 100 > doc.page.height - bottomMargin) {
+      doc.addPage();
+      currentY = doc.y;
+    }
 
-  // Check if the summary can fit (5 rows + Net Pay Box + Footer ~ 100 points)
-  if (currentY + 100 > doc.page.height - bottomMargin) {
-       doc.addPage();
-       currentY = doc.y;
-  }
+    doc
+      .fontSize(14)
+      .fillColor('#34495E')
+      .text('III. Final Summary', startX, currentY, { underline: true });
+    currentY += 20;
 
-  doc.fontSize(14).fillColor('#34495E').text('III. Final Summary', startX, currentY, { underline: true });
-  currentY += 20;
-
-  const financialSummary: Record<string, any> = {
+    const financialSummary: Record<string, any> = {
       'Payroll Run ID': payslip.payrollRunId.toString() ?? 'N/A',
       'Total Gross Salary': `$${Number(payslip.totalGrossSalary ?? 0).toFixed(2)}`,
       'Total Deductions': `$${Number(payslip.totaDeductions ?? 0).toFixed(2)}`,
       'Payment Status': payslip.paymentStatus ?? 'Unknown',
-  };
+    };
 
-  // Draw Summary Lines
-  doc.fontSize(11).fillColor('#34495E');
-  Object.entries(financialSummary).forEach(([key, value]) => {
+    // Draw Summary Lines
+    doc.fontSize(11).fillColor('#34495E');
+    Object.entries(financialSummary).forEach(([key, value]) => {
       doc.text(`${key}:`, startX, currentY);
-      doc.fillColor(key === 'Total Gross Salary' ? '#16A085' : '#34495E').text(value, xValue, currentY, {
+      doc
+        .fillColor(key === 'Total Gross Salary' ? '#16A085' : '#34495E')
+        .text(value, xValue, currentY, {
           width: valueWidth,
-          align: 'right'
+          align: 'right',
+        });
+      currentY += rowHeight;
+    });
+
+    currentY += 15; // Tighter space before NET PAY box
+
+    // =========================================================================
+    // 6. NET PAY BOX (Take Home)
+    // =========================================================================
+    const bannerHeight = 35; // Slightly shorter banner
+    const bannerY = currentY;
+
+    // Draw Net Pay box
+    doc
+      .rect(startX, bannerY, 500, bannerHeight)
+      .fillAndStroke('#2C3E50', '#2C3E50');
+
+    // Label (Inside the box)
+    doc
+      .fontSize(16)
+      .fillColor('#ECF0F1')
+      .text('NET PAY (TAKE HOME)', startX + 20, bannerY + 10);
+
+    // Value (Inside the box, right aligned)
+    doc
+      .fontSize(20)
+      .fillColor('#2ECC71')
+      .text(`$${Number(payslip.netPay ?? 0).toFixed(2)}`, startX, bannerY + 8, {
+        align: 'right',
+        width: 500,
       });
-      currentY += rowHeight; 
-  });
 
-  currentY += 15; // Tighter space before NET PAY box
+    currentY += bannerHeight + 15; // Move down below the dark box and add spacing
 
-  // =========================================================================
-  // 6. NET PAY BOX (Take Home)
-  // =========================================================================
-  const bannerHeight = 35; // Slightly shorter banner
-  const bannerY = currentY;
-
-  // Draw Net Pay box 
-  doc.rect(startX, bannerY, 500, bannerHeight).fillAndStroke('#2C3E50', '#2C3E50');
-  
-  // Label (Inside the box)
-  doc.fontSize(16).fillColor('#ECF0F1').text('NET PAY (TAKE HOME)', startX + 20, bannerY + 10);
-
-  // Value (Inside the box, right aligned)
-  doc.fontSize(20).fillColor('#2ECC71')
-      .text(`$${Number(payslip.netPay ?? 0).toFixed(2)}`, startX, bannerY + 8, { align: 'right', width: 500 }); 
-
-  currentY += bannerHeight + 15; // Move down below the dark box and add spacing
-  
-  // Footer
-  doc.fontSize(9) // Smaller footer font
+    // Footer
+    doc
+      .fontSize(9) // Smaller footer font
       .fillColor('#7F8C8D')
-      .text('This is a system-generated payslip and may not require a signature.', startX, currentY, { align: 'center', width: 500 });
+      .text(
+        'This is a system-generated payslip and may not require a signature.',
+        startX,
+        currentY,
+        { align: 'center', width: 500 },
+      );
 
-  doc.end();
-  return stream;
-}
-
+    doc.end();
+    return stream;
+  }
 
   // Employee can view the status and key details of their payslips(REQ-PY-2)
   async getMyPayslipStatusHistory(userId: string) {
@@ -393,146 +504,171 @@ async downloadRecentPayslipPdf(userId: string): Promise<Stream> {
       .exec();
 
     if (!payslips || payslips.length === 0) {
-        // Use the same exception as requested, even if it's for an empty list
-        throw new NotFoundException('No payslips found');
+      // Use the same exception as requested, even if it's for an empty list
+      throw new NotFoundException('No payslips found');
     }
 
     // 2. Map the results to format them identically to the requested output
-    return payslips.map(payslip => {
-        const createdAtDate = payslip.createdAt;
-        const updatedAtDate = payslip.updatedAt;
+    return payslips.map((payslip) => {
+      const createdAtDate = payslip.createdAt;
+      const updatedAtDate = payslip.updatedAt;
 
-        return {
-            payrollRunId: payslip.payrollRunId ?? 'N/A',
-            // Ensure numbers are formatted with '$' and 2 decimal places
-            totalGrossSalary: `$${Number(payslip.totalGrossSalary ?? 0).toFixed(2)}`,
-            totalDeductions: `$${Number(payslip.totaDeductions ?? 0).toFixed(2)}`,
-            netPay: `$${Number(payslip.netPay ?? 0).toFixed(2)}`,
-            paymentStatus: payslip.paymentStatus ?? 'Unknown',
-            // Extract month and year
-            month: createdAtDate ? createdAtDate.getMonth() + 1 : 'N/A',
-            year: createdAtDate ? createdAtDate.getFullYear() : 'N/A',
-            // Format dates
-            createdAt: createdAtDate?.toDateString() ?? 'N/A',
-            updatedAt: updatedAtDate?.toDateString() ?? 'N/A',
-        };
+      return {
+        payrollRunId: payslip.payrollRunId ?? 'N/A',
+        // Ensure numbers are formatted with '$' and 2 decimal places
+        totalGrossSalary: `$${Number(payslip.totalGrossSalary ?? 0).toFixed(2)}`,
+        totalDeductions: `$${Number(payslip.totaDeductions ?? 0).toFixed(2)}`,
+        netPay: `$${Number(payslip.netPay ?? 0).toFixed(2)}`,
+        paymentStatus: payslip.paymentStatus ?? 'Unknown',
+        // Extract month and year
+        month: createdAtDate ? createdAtDate.getMonth() + 1 : 'N/A',
+        year: createdAtDate ? createdAtDate.getFullYear() : 'N/A',
+        // Format dates
+        createdAt: createdAtDate?.toDateString() ?? 'N/A',
+        updatedAt: updatedAtDate?.toDateString() ?? 'N/A',
+      };
     });
-}
+  }
 
   // Employee views their base salary according to employment contract (req-py-3)
   async viewBaseSalary(userId: string) {
-  // 1. Find employee profile
-  const employee = await this.employeeModel.findById(userId).lean();
+    // 1. Find employee profile
+    const employee = await this.employeeModel.findById(userId).lean();
 
-  if (!employee) {
-    throw new NotFoundException('Employee not found');
+    if (!employee) {
+      throw new NotFoundException('Employee not found');
+    }
+
+    if (!employee.payGradeId) {
+      throw new NotFoundException('Pay grade not assigned to employee');
+    }
+
+    // 2. Find pay grade
+    const payGrade = await this.payGradeModel
+      .findById(employee.payGradeId)
+      .lean();
+
+    if (!payGrade) {
+      throw new NotFoundException('Pay grade not found');
+    }
+
+    // 3. Calculate multiplier
+    let multiplier = 1;
+
+    // Contract type
+    if (employee.contractType === 'PART_TIME_CONTRACT') {
+      multiplier *= 0.5;
+    }
+
+    // Work type
+    if (employee.workType === 'PART_TIME') {
+      multiplier *= 0.5;
+    }
+
+    // 4. Calculate salary
+    const baseSalary = payGrade.baseSalary * multiplier;
+
+    // 5. Return useful info
+    return {
+      employeeId: employee._id,
+      contractType: employee.contractType ?? 'N/A',
+      workType: employee.workType ?? 'N/A',
+      originalBaseSalary: payGrade.baseSalary,
+      adjustedBaseSalary: baseSalary,
+      multiplier,
+    };
   }
-
-  if (!employee.payGradeId) {
-    throw new NotFoundException('Pay grade not assigned to employee');
-  }
-
-  // 2. Find pay grade
-  const payGrade = await this.payGradeModel
-    .findById(employee.payGradeId)
-    .lean();
-
-  if (!payGrade) {
-    throw new NotFoundException('Pay grade not found');
-  }
-
-  // 3. Calculate multiplier
-  let multiplier = 1;
-
-  // Contract type
-  if (employee.contractType === 'PART_TIME_CONTRACT') {
-    multiplier *= 0.5;
-  }
-
-  // Work type
-  if (employee.workType === 'PART_TIME') {
-    multiplier *= 0.5;
-  }
-
-  // 4. Calculate salary
-  const baseSalary = payGrade.baseSalary * multiplier;
-
-  // 5. Return useful info
-  return {
-    employeeId: employee._id,
-    contractType: employee.contractType ?? 'N/A',
-    workType: employee.workType ?? 'N/A',
-    originalBaseSalary: payGrade.baseSalary,
-    adjustedBaseSalary: baseSalary,
-    multiplier,
-  };
-}
-
 
   // Employee views compensation for unused/encashed leave (REQ-PY-5)
   async viewUnusedLeaveCompensation(userId: string) {
-    // 1. Get the employee
-    const employee = await this.employeeModel.findById(userId).exec();
-    if (!employee) throw new NotFoundException('Employee not found');
+    // 1. Get Employee Profile
+    const employee = await this.employeeModel.findById(userId).lean();
+    if (!employee) {
+      throw new NotFoundException('Employee profile not found');
+    }
+    if (!employee.payGradeId) {
+      throw new NotFoundException(
+        'Pay grade not assigned; cannot calculate daily rate',
+      );
+    }
 
-    // 2. Get pay grade and base salary
-    if (!employee.payGradeId)
-      throw new NotFoundException('Pay grade not assigned');
+    // 2. Fetch Pay Grade
     const payGrade = await this.payGradeModel
       .findById(employee.payGradeId)
-      .exec();
-    if (!payGrade) throw new NotFoundException('Pay grade not found');
+      .lean();
+    if (!payGrade) {
+      throw new NotFoundException('Pay grade details not found');
+    }
 
-    // Assume 22 working days per month for daily rate calculation
-    const dailyRate = Number(payGrade.baseSalary ?? 0) / 22;
-
-    // 3. Get all paid leave types
-    const paidLeaveTypes = await this.leaveTypeModel
-      .find({ paid: true })
-      .exec();
-
-    // 4. For each leave type, get remaining leave for the employee
+    // 3. Get Leave Entitlements and populate Leave Type
     const entitlements = await this.leaveEntitlementModel
-      .find({
-        employeeId: userId,
-        leaveTypeId: { $in: paidLeaveTypes.map((l) => l._id) },
+      .find({ employeeId: new Types.ObjectId(userId) })
+      .populate({
+        path: 'leaveTypeId',
+        select: '_id name isEncashable', // Only fetch relevant fields
       })
-      .exec();
+      .lean();
 
-    // 5. Calculate encashable amount for each leave type
-    const leaveCompensation = entitlements.map((ent) => {
-      const leaveType = paidLeaveTypes.find((l) =>
-        l._id.equals(ent.leaveTypeId),
-      );
-      const remainingDays = ent.remaining ?? 0;
-      const compensation = dailyRate * remainingDays;
+    if (!entitlements || entitlements.length === 0) {
       return {
-        leaveType: leaveType?.name ?? 'Unknown',
-        remainingDays,
-        dailyRate,
-        compensation: Number(compensation.toFixed(2)),
+        message: 'No leave entitlements found for this employee.',
+        totalPotentialCompensation: 0,
+        leaveBreakdown: [],
+      };
+    }
+
+    // 4. Calculation Logic
+    const WORK_DAYS_PER_MONTH = 22;
+
+    // Apply contract/work multipliers
+    let multiplier = 1;
+    if (employee.contractType === 'PART_TIME_CONTRACT') multiplier *= 0.5;
+    if (employee.workType === 'PART_TIME') multiplier *= 0.5;
+
+    const adjustedMonthlySalary = payGrade.baseSalary * multiplier;
+    const dailyRate = adjustedMonthlySalary / WORK_DAYS_PER_MONTH;
+
+    const compensationDetails = entitlements.map((ent) => {
+      // After populate, leaveTypeId is now the full document
+      const leaveType = ent.leaveTypeId as any;
+      const remainingDays = ent.remaining || 0;
+      const estimatedValue = +(remainingDays * dailyRate).toFixed(2);
+
+      return {
+        leaveTypeId: leaveType?._id || null,
+        leaveTypeName: leaveType?.name || 'Unknown Leave Type',
+        isEncashable: leaveType?.isEncashable ?? true,
+        remainingDays: remainingDays,
+        accruedActual: ent.accruedActual,
+        dailyRate: +dailyRate.toFixed(2),
+        estimatedValue: estimatedValue,
       };
     });
 
-    // 6. Total compensation
-    const totalCompensation = leaveCompensation.reduce(
-      (sum, l) => sum + l.compensation,
+    const totalPotentialCompensation = compensationDetails.reduce(
+      (sum, item) => sum + item.estimatedValue,
       0,
     );
 
     return {
-      leaveCompensation,
-      totalCompensation: Number(totalCompensation.toFixed(2)),
+      employeeId: userId,
+      monthlyBaseSalary: +adjustedMonthlySalary.toFixed(2),
+      dailyRate: +dailyRate.toFixed(2),
+      totalPotentialCompensation: +totalPotentialCompensation.toFixed(2),
+      leaveBreakdown: compensationDetails,
+      note: 'Value calculated based on current base salary and a standard 22-day work month.',
     };
   }
 
   // Employee views transportation/commuting allowances
   async viewTransportationCompensation(employeeId: string) {
     // 1. Get payslips for this employee
-    const payslips = await this.payslipModel.find({
-      employeeId,
-    }).exec();
-  
+    const payslips = await this.payslipModel
+      .find({
+        employeeId,
+      })
+      .exec();
+
     if (!payslips.length) {
       return {
         message: 'No payslips found for employee',
@@ -540,14 +676,15 @@ async downloadRecentPayslipPdf(userId: string): Promise<Stream> {
         allowances: [],
       };
     }
-  
+
     // 2. Extract transport-related allowances
-    const transportAllowances = payslips.flatMap(ps =>
-      ps.earningsDetails?.allowances?.filter(a =>
-        /transport|commute/i.test(a.name),
-      ) || [],
+    const transportAllowances = payslips.flatMap(
+      (ps) =>
+        ps.earningsDetails?.allowances?.filter((a) =>
+          /transport|commute/i.test(a.name),
+        ) || [],
     );
-  
+
     if (!transportAllowances.length) {
       return {
         message: 'No transportation allowances found',
@@ -555,40 +692,39 @@ async downloadRecentPayslipPdf(userId: string): Promise<Stream> {
         allowances: [],
       };
     }
-  
+
     // 3. Sum amounts
     const totalAmount = transportAllowances.reduce(
       (sum, a) => sum + a.amount,
       0,
     );
-  
+
     return {
       totalAmount,
-      allowances: transportAllowances.map(a => ({
+      allowances: transportAllowances.map((a) => ({
         name: a.name,
         amount: a.amount,
       })),
     };
   }
-  
 
   //View detailed tax deductions (REQ-PY-8)
   async viewDetailedTaxDeductions(userId: string, payslipId: string) {
     const payslip = await this.payslipModel.findById(payslipId).exec();
-  
+
     if (!payslip) {
       throw new NotFoundException('Payslip not found');
     }
-  
+
     if (!payslip.employeeId || payslip.employeeId.toString() !== userId) {
       throw new ForbiddenException('You cannot view this payslip');
     }
-  
+
     // -----------------------------
     // 1️⃣ Use taxable base from the payslip (already calculated)
     // -----------------------------
     const taxableBase = payslip.totalGrossSalary ?? 0;
-  
+
     // -----------------------------
     // 2️⃣ Map taxes and calculate amounts
     // -----------------------------
@@ -599,20 +735,19 @@ async downloadRecentPayslipPdf(userId: string): Promise<Stream> {
       lawReference: tax.description ?? 'Law/Rule Not Specified',
       amount: +(taxableBase * (tax.rate / 100)).toFixed(2), // based on gross from payslip
     }));
-  
+
     // -----------------------------
     // 3️⃣ Total tax
     // -----------------------------
     const totalTax = detailedTaxes.reduce((sum, t) => sum + t.amount, 0);
-  
+
     return {
       taxableBase,
       totalTax,
       taxes: detailedTaxes,
     };
   }
-  
-  
+
   // view insurance deductions(REQ-PY-9)
   async viewInsuranceDeductions(employeeId: string) {
     // 1. Get the latest payslip for this employee
@@ -620,7 +755,7 @@ async downloadRecentPayslipPdf(userId: string): Promise<Stream> {
       .findOne({ employeeId })
       .sort({ createdAt: -1 }) // newest first
       .exec();
-  
+
     if (!payslip) {
       return {
         message: 'No payslip found for employee',
@@ -630,22 +765,28 @@ async downloadRecentPayslipPdf(userId: string): Promise<Stream> {
         insurances: [],
       };
     }
-  
+
     // Use the totalGrossSalary from the payslip directly
     const grossSalary = payslip.totalGrossSalary ?? 0;
-  
+
     // 2. Extract insurance deductions
     const insurances =
       payslip.deductionsDetails?.insurances
         ?.filter(
-          ins =>
+          (ins) =>
             typeof ins.employeeRate === 'number' &&
             typeof ins.employerRate === 'number',
         )
-        .map(ins => {
-          const employeeContribution = +(grossSalary * (ins.employeeRate / 100)).toFixed(2);
-          const employerContribution = +(grossSalary * (ins.employerRate / 100)).toFixed(2);
-  
+        .map((ins) => {
+          const employeeContribution = +(
+            grossSalary *
+            (ins.employeeRate / 100)
+          ).toFixed(2);
+          const employerContribution = +(
+            grossSalary *
+            (ins.employerRate / 100)
+          ).toFixed(2);
+
           return {
             name: ins.name,
             employeeRate: ins.employeeRate,
@@ -655,11 +796,17 @@ async downloadRecentPayslipPdf(userId: string): Promise<Stream> {
             total: +(employeeContribution + employerContribution).toFixed(2),
           };
         }) ?? [];
-  
+
     // 3. Totals
-    const totalEmployee = insurances.reduce((sum, i) => sum + i.employeeContribution, 0);
-    const totalEmployer = insurances.reduce((sum, i) => sum + i.employerContribution, 0);
-  
+    const totalEmployee = insurances.reduce(
+      (sum, i) => sum + i.employeeContribution,
+      0,
+    );
+    const totalEmployer = insurances.reduce(
+      (sum, i) => sum + i.employerContribution,
+      0,
+    );
+
     return {
       payslipId: payslip._id,
       payrollRunId: payslip.payrollRunId,
@@ -670,13 +817,9 @@ async downloadRecentPayslipPdf(userId: string): Promise<Stream> {
       insurances,
     };
   }
-  
-
 
   async calculateMisconductAbsenceDeductions(
     userId: string,
-    startDate: Date,
-    endDate: Date,
   ): Promise<PayrollDeduction[]> {
     const employeeObjectId = new Types.ObjectId(userId);
     const deductions: PayrollDeduction[] = [];
@@ -688,32 +831,38 @@ async downloadRecentPayslipPdf(userId: string): Promise<Stream> {
 
     const gracePeriodMinutes = latenessRule?.gracePeriodMinutes || 0;
     const deductionForEachMinute = latenessRule?.deductionForEachMinute || 0;
-    
-    // --- 2. Find relevant Attendance Records ---
-    // In a real app, AttendanceRecord needs a date field to query on. 
-    // We filter by ID timestamp as a fallback, but this is unreliable.
-    const attendanceRecords = await this.attendanceModel.find({
-      employeeId: employeeObjectId,
-      // date: { $gte: startDate, $lte: endDate }, // Use this if a 'date' field existed
-      finalisedForPayroll: true,
-    }).exec();
 
+    // --- 2. Find relevant Attendance Records ---
+    // In a real app, AttendanceRecord needs a date field to query on.
+    // We filter by ID timestamp as a fallback, but this is unreliable.
+    const attendanceRecords = await this.attendanceModel
+      .find({
+        employeeId: employeeObjectId,
+        // date: { $gte: startDate, $lte: endDate }, // Use this if a 'date' field existed
+        finalisedForPayroll: true,
+      })
+      .exec();
 
     // --- 3. Iterate over records to check for absenteeism and lateness ---
     for (const record of attendanceRecords) {
       // ** A. Absenteeism Check (Unapproved Missing Day) **
       const recordDate = record['_id'].getTimestamp(); // Using _id timestamp as a fallback
-      
-      // Filter records that fall within the requested date range (essential due to lack of a dedicated date field in the schema)
-      if (recordDate < startDate || recordDate > endDate) {
-          continue;
-      }
 
-      if (record.punches.length === 0 && record.totalWorkMinutes === 0 && record.exceptionIds.length === 0) {
+      // Filter records that fall within the requested date range (essential due to lack of a dedicated date field in the schema)
+      // if (recordDate < startDate || recordDate > endDate) {
+      //   continue;
+      // }
+
+      if (
+        record.punches.length === 0 &&
+        record.totalWorkMinutes === 0 &&
+        record.exceptionIds.length === 0
+      ) {
         deductions.push({
           type: 'Absenteeism',
           date: recordDate,
-          reason: 'Unapproved Absenteeism: Missing work day with no punches or exceptions.',
+          reason:
+            'Unapproved Absenteeism: Missing work day with no punches or exceptions.',
         });
       }
 
@@ -723,14 +872,16 @@ async downloadRecentPayslipPdf(userId: string): Promise<Stream> {
         // In a real system, fetch the employee's scheduled shift start time.
         // Assuming 9:00 AM for demonstration purposes.
         const assumedShiftStartTime = new Date(checkInTime);
-        assumedShiftStartTime.setHours(9, 0, 0, 0); 
+        assumedShiftStartTime.setHours(9, 0, 0, 0);
 
-        const lateMilliseconds = checkInTime.getTime() - assumedShiftStartTime.getTime();
+        const lateMilliseconds =
+          checkInTime.getTime() - assumedShiftStartTime.getTime();
         const lateMinutes = Math.floor(lateMilliseconds / (1000 * 60));
 
         if (lateMinutes > gracePeriodMinutes) {
           const chargeableLateMinutes = lateMinutes - gracePeriodMinutes;
-          const potentialDeduction = chargeableLateMinutes * deductionForEachMinute;
+          const potentialDeduction =
+            chargeableLateMinutes * deductionForEachMinute;
 
           deductions.push({
             type: 'Lateness',
@@ -744,18 +895,18 @@ async downloadRecentPayslipPdf(userId: string): Promise<Stream> {
     return deductions.sort((a, b) => a.date.getTime() - b.date.getTime());
   }
   //View any salary deductions due to misconduct or unapproved absenteeism (REQ-PY-10)// View salary deductions due to misconduct or unapproved absenteeism (REQ-PY-10)
-  
+
   async calculateUnpaidLeaveDeductions(employeeId: string) {
     // 1. Fetch the employee + pay grade
     // Using .lean() as a best practice for reading data
     const employee = await this.employeeModel
-        .findById(employeeId)
-        .populate('payGradeId')
-        .lean() 
-        .exec();
+      .findById(employeeId)
+      .populate('payGradeId')
+      .lean()
+      .exec();
 
     if (!employee) {
-        throw new Error('Employee not found');
+      throw new Error('Employee not found');
     }
 
     // 2. Safely get base salary and daily rate
@@ -764,58 +915,63 @@ async downloadRecentPayslipPdf(userId: string): Promise<Stream> {
     // Use TypeScript 'unknown' cast to safely handle the fact that
     // 'payGradeId' might be a plain ObjectId (string) if population failed,
     // or the full document object if population succeeded.
-    const populatedPayGrade = payGrade as unknown as { baseSalary: number } | null | undefined;
-    
-    // Safely extract baseSalary. It defaults to 0 if payGrade is null, unpopulated, 
+    const populatedPayGrade = payGrade as unknown as
+      | { baseSalary: number }
+      | null
+      | undefined;
+
+    // Safely extract baseSalary. It defaults to 0 if payGrade is null, unpopulated,
     // or missing the baseSalary property.
     const baseSalary = populatedPayGrade?.baseSalary ?? 0;
-    
+
     // Check if the base salary is 0 (meaning population failed or data is missing)
     if (baseSalary === 0) {
-         console.warn(`[DEDUCTION WARNING] Pay Grade (ID: ${employee.payGradeId}) could not be populated or baseSalary is 0 for employee ${employeeId}. Unpaid leave deduction calculated as 0.`);
-         // Continue with calculation, but dailyRate will be 0
+      console.warn(
+        `[DEDUCTION WARNING] Pay Grade (ID: ${employee.payGradeId}) could not be populated or baseSalary is 0 for employee ${employeeId}. Unpaid leave deduction calculated as 0.`,
+      );
+      // Continue with calculation, but dailyRate will be 0
     }
-    
+
     const dailyRate = baseSalary / 22; // assume 22 working days/month
 
     // 3. Fetch employee leave entitlements
     const entitlements = await this.leaveEntitlementModel
-        .find({ employeeId })
-        .exec();
+      .find({ employeeId })
+      .exec();
 
     // 4. Fetch only deductible leave types
     const leaveTypes = await this.leaveTypeModel
-        .find({ deductible: true })
-        .select('name paid deductible') 
-        .exec();
+      .find({ deductible: true })
+      .select('name paid deductible')
+      .exec();
 
     // 5. Filter unpaid leave & calculate deductions
     const details = entitlements
-        .filter((ent) => {
-            const leaveType = leaveTypes.find((l) => l._id.equals(ent.leaveTypeId));
-            // Filter: Leave Type must exist AND must be unpaid (!leaveType.paid)
-            return leaveType && !leaveType.paid; 
-        })
-        .map((ent) => {
-            const leaveType = leaveTypes.find((l) => l._id.equals(ent.leaveTypeId));
-            const daysTaken = ent.taken ?? 0;
-            const amount = daysTaken * dailyRate; 
-            
-            return {
-                leaveType: leaveType?.name ?? 'Unknown',
-                daysTaken,
-                dailyRate: Number(dailyRate.toFixed(2)), 
-                amount: Number(amount.toFixed(2)),
-            };
-        });
+      .filter((ent) => {
+        const leaveType = leaveTypes.find((l) => l._id.equals(ent.leaveTypeId));
+        // Filter: Leave Type must exist AND must be unpaid (!leaveType.paid)
+        return leaveType && !leaveType.paid;
+      })
+      .map((ent) => {
+        const leaveType = leaveTypes.find((l) => l._id.equals(ent.leaveTypeId));
+        const daysTaken = ent.taken ?? 0;
+        const amount = daysTaken * dailyRate;
+
+        return {
+          leaveType: leaveType?.name ?? 'Unknown',
+          daysTaken,
+          dailyRate: Number(dailyRate.toFixed(2)),
+          amount: Number(amount.toFixed(2)),
+        };
+      });
 
     const totalDeductions = details.reduce((sum, d) => sum + d.amount, 0);
 
     return {
-        totalDeductions: Number(totalDeductions.toFixed(2)),
-        details,
+      totalDeductions: Number(totalDeductions.toFixed(2)),
+      details,
     };
-}
+  }
 
   //get salary history(REQ-PY-13)
   async getSalaryHistory(userId: string) {
@@ -1325,18 +1481,12 @@ async downloadRecentPayslipPdf(userId: string): Promise<Stream> {
             // Since rates are percentages, we estimate: approximately 25% for taxes, 10% for insurance of gross
             totalTaxes: {
               $sum: {
-                $multiply: [
-                  { $ifNull: ['$totalGrossSalary', 0] },
-                  0.25,
-                ],
+                $multiply: [{ $ifNull: ['$totalGrossSalary', 0] }, 0.25],
               },
             },
             totalInsurance: {
               $sum: {
-                $multiply: [
-                  { $ifNull: ['$totalGrossSalary', 0] },
-                  0.1,
-                ],
+                $multiply: [{ $ifNull: ['$totalGrossSalary', 0] }, 0.1],
               },
             },
             totalBenefits: {
@@ -1444,51 +1594,52 @@ async downloadRecentPayslipPdf(userId: string): Promise<Stream> {
   }
 
   /** Payroll Manager: Confirm dispute approval */
-async managerConfirmDisputeApproval(
-  disputeId: string,
-  payrollManagerId: string,
-  refundAmount: number,
-  comments?: string,
-): Promise<disputes> {
+  async managerConfirmDisputeApproval(
+    disputeId: string,
+    payrollManagerId: string,
+    refundAmount: number,
+    comments?: string,
+  ): Promise<disputes> {
+    const dispute = await this.disputesModel.findById(disputeId);
+    if (!dispute) throw new NotFoundException('Dispute not found');
 
-  const dispute = await this.disputesModel.findById(disputeId);
-  if (!dispute) throw new NotFoundException('Dispute not found');
+    if (dispute.status !== DisputeStatus.PENDING_MANAGER_APPROVAL) {
+      throw new BadRequestException('Dispute is not pending manager approval');
+    }
 
-  if (dispute.status !== DisputeStatus.PENDING_MANAGER_APPROVAL) {
-    throw new BadRequestException('Dispute is not pending manager approval');
+    if (!refundAmount || refundAmount <= 0) {
+      throw new BadRequestException('Refund amount must be greater than zero');
+    }
+
+    dispute.status = DisputeStatus.APPROVED;
+    dispute.payrollManagerId = new Types.ObjectId(payrollManagerId);
+    dispute.resolutionComment = comments
+      ? `${dispute.resolutionComment || ''} | Manager confirmed: ${comments}`
+      : dispute.resolutionComment;
+
+    await dispute.save();
+
+    // ✅ FIND ALL FINANCE STAFF
+    const financeStaffRoles = await this.employeeSystemRoleModel
+      .find({
+        roles: SystemRole.FINANCE_STAFF,
+        isActive: true,
+      })
+      .select('employeeProfileId');
+
+    // ✅ CREATE NOTIFICATION LOGS DIRECTLY
+    const notifications = financeStaffRoles.map((role) => ({
+      to: role.employeeProfileId.toString(),
+      type: 'SYSTEM',
+      message: `Refund Requires Processing. Dispute ${dispute.disputeId} has been approved. Refund amount: ${refundAmount}. Please process the refund.`,
+    }));
+
+    if (notifications.length > 0) {
+      await this.notificationLogModel.insertMany(notifications);
+    }
+
+    return dispute;
   }
-
-  if (!refundAmount || refundAmount <= 0) {
-    throw new BadRequestException('Refund amount must be greater than zero');
-  }
-
-  dispute.status = DisputeStatus.APPROVED;
-  dispute.payrollManagerId = new Types.ObjectId(payrollManagerId);
-  dispute.resolutionComment = comments
-    ? `${dispute.resolutionComment || ''} | Manager confirmed: ${comments}`
-    : dispute.resolutionComment;
-
-  await dispute.save();
-
-  // ✅ FIND ALL FINANCE STAFF
-  const financeStaffRoles = await this.employeeSystemRoleModel.find({
-    roles: SystemRole.FINANCE_STAFF,
-    isActive: true,
-  }).select('employeeProfileId');
-
-  // ✅ CREATE NOTIFICATION LOGS DIRECTLY
-  const notifications = financeStaffRoles.map((role) => ({
-    to: role.employeeProfileId.toString(),
-    type: 'SYSTEM',
-    message: `Refund Requires Processing. Dispute ${dispute.disputeId} has been approved. Refund amount: ${refundAmount}. Please process the refund.`,
-  }));
-
-  if (notifications.length > 0) {
-    await this.notificationLogModel.insertMany(notifications);
-  }
-
-  return dispute;
-}
 
   /** Payroll Manager: Reject dispute */
   async managerRejectDispute(
@@ -1537,29 +1688,28 @@ async managerConfirmDisputeApproval(
   }
 
   /** Payroll Specialist: Approve claim (sends to manager for confirmation) */
- async specialistApproveClaim(
-  claimId: string,
-  payrollSpecialistId: string,
-  approvedAmount?: number,
-  comments?: string,
-): Promise<claims> {
+  async specialistApproveClaim(
+    claimId: string,
+    payrollSpecialistId: string,
+    approvedAmount?: number,
+    comments?: string,
+  ): Promise<claims> {
+    const claim = await this.claimsModel.findById(claimId);
+    if (!claim) throw new NotFoundException('Claim not found');
 
-  const claim = await this.claimsModel.findById(claimId);
-  if (!claim) throw new NotFoundException('Claim not found');
+    if (claim.status !== ClaimStatus.UNDER_REVIEW) {
+      throw new BadRequestException('Claim is not under review');
+    }
 
-  if (claim.status !== ClaimStatus.UNDER_REVIEW) {
-    throw new BadRequestException('Claim is not under review');
+    claim.status = ClaimStatus.PENDING_MANAGER_APPROVAL;
+    claim.payrollSpecialistId = new Types.ObjectId(payrollSpecialistId);
+    claim.approvedAmount = approvedAmount ?? claim.amount;
+    claim.resolutionComment =
+      comments || 'Approved by payroll specialist, pending manager approval';
+
+    await claim.save();
+    return claim;
   }
-
-  claim.status = ClaimStatus.PENDING_MANAGER_APPROVAL;
-  claim.payrollSpecialistId = new Types.ObjectId(payrollSpecialistId);
-  claim.approvedAmount = approvedAmount ?? claim.amount;
-  claim.resolutionComment =
-    comments || 'Approved by payroll specialist, pending manager approval';
-
-  await claim.save();
-  return claim;
-}
   /** Payroll Specialist: Reject claim (final rejection) */
   async specialistRejectClaim(
     claimId: string,
@@ -1596,46 +1746,47 @@ async managerConfirmDisputeApproval(
   }
 
   /** Payroll Manager: Confirm claim approval */
-async managerConfirmClaimApproval(
-  claimId: string,
-  payrollManagerId: string,
-  comments?: string,
-): Promise<claims> {
+  async managerConfirmClaimApproval(
+    claimId: string,
+    payrollManagerId: string,
+    comments?: string,
+  ): Promise<claims> {
+    const claim = await this.claimsModel.findById(claimId);
+    if (!claim) throw new NotFoundException('Claim not found');
 
-  const claim = await this.claimsModel.findById(claimId);
-  if (!claim) throw new NotFoundException('Claim not found');
+    if (claim.status !== ClaimStatus.PENDING_MANAGER_APPROVAL) {
+      throw new BadRequestException('Claim is not pending manager approval');
+    }
 
-  if (claim.status !== ClaimStatus.PENDING_MANAGER_APPROVAL) {
-    throw new BadRequestException('Claim is not pending manager approval');
+    claim.status = ClaimStatus.APPROVED;
+    claim.payrollManagerId = new Types.ObjectId(payrollManagerId);
+    claim.resolutionComment = comments
+      ? `${claim.resolutionComment || ''} | Manager confirmed: ${comments}`
+      : claim.resolutionComment;
+
+    await claim.save();
+
+    const refundAmount = claim.approvedAmount ?? claim.amount;
+
+    const financeStaffRoles = await this.employeeSystemRoleModel
+      .find({
+        roles: SystemRole.FINANCE_STAFF,
+        isActive: true,
+      })
+      .select('employeeProfileId');
+
+    const notifications = financeStaffRoles.map((role) => ({
+      to: role.employeeProfileId.toString(),
+      type: 'SYSTEM',
+      message: `Refund Requires Processing. Claim ${claim.claimId} has been approved. Refund amount: ${refundAmount}. Please process the refund.`,
+    }));
+
+    if (notifications.length > 0) {
+      await this.notificationLogModel.insertMany(notifications);
+    }
+
+    return claim;
   }
-
-  claim.status = ClaimStatus.APPROVED;
-  claim.payrollManagerId = new Types.ObjectId(payrollManagerId);
-  claim.resolutionComment = comments
-    ? `${claim.resolutionComment || ''} | Manager confirmed: ${comments}`
-    : claim.resolutionComment;
-
-  await claim.save();
-
-  const refundAmount = claim.approvedAmount ?? claim.amount;
-
-  const financeStaffRoles = await this.employeeSystemRoleModel.find({
-    roles: SystemRole.FINANCE_STAFF,
-    isActive: true,
-  }).select('employeeProfileId');
-
-  const notifications = financeStaffRoles.map((role) => ({
-    to: role.employeeProfileId.toString(),
-    type: 'SYSTEM',
-    message: `Refund Requires Processing. Claim ${claim.claimId} has been approved. Refund amount: ${refundAmount}. Please process the refund.`,
-  }));
-
-  if (notifications.length > 0) {
-    await this.notificationLogModel.insertMany(notifications);
-  }
-
-  return claim;
-}
 
   /** Payroll Manager: Reject claim */
   async managerRejectClaim(
@@ -1711,9 +1862,13 @@ async managerConfirmClaimApproval(
         if (!dispute) throw new NotFoundException('Dispute not found');
 
         // Prevent duplicate refunds for the same dispute
-        const existingForDispute = await this.refundsModel.findOne({ disputeId: dispute._id });
+        const existingForDispute = await this.refundsModel.findOne({
+          disputeId: dispute._id,
+        });
         if (existingForDispute) {
-          throw new BadRequestException('A refund already exists for this dispute');
+          throw new BadRequestException(
+            'A refund already exists for this dispute',
+          );
         }
 
         if (dispute.status !== DisputeStatus.APPROVED) {
@@ -1731,9 +1886,13 @@ async managerConfirmClaimApproval(
         if (!claim) throw new NotFoundException('Claim not found');
 
         // Prevent duplicate refunds for the same claim
-        const existingForClaim = await this.refundsModel.findOne({ claimId: claim._id });
+        const existingForClaim = await this.refundsModel.findOne({
+          claimId: claim._id,
+        });
         if (existingForClaim) {
-          throw new BadRequestException('A refund already exists for this claim');
+          throw new BadRequestException(
+            'A refund already exists for this claim',
+          );
         }
 
         if (claim.status !== ClaimStatus.APPROVED) {
@@ -1770,19 +1929,19 @@ async managerConfirmClaimApproval(
   }
 
   async getAllRefunds() {
-  return this.refundsModel
-    .find({
-      status: { $in: [RefundStatus.PENDING, RefundStatus.PAID] },
-    })
-    .populate('employeeId', 'employeeNumber')
-    .populate('financeStaffId', 'employeeNumber')
-    .populate('claimId', 'claimId')
-    .populate('disputeId', 'disputeId')
-    .populate('paidInPayrollRunId')
-    .sort({ createdAt: -1 })
-    .lean()
-    .exec();
-}
+    return this.refundsModel
+      .find({
+        status: { $in: [RefundStatus.PENDING, RefundStatus.PAID] },
+      })
+      .populate('employeeId', 'employeeNumber')
+      .populate('financeStaffId', 'employeeNumber')
+      .populate('claimId', 'claimId')
+      .populate('disputeId', 'disputeId')
+      .populate('paidInPayrollRunId')
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+  }
   /** Get disputes for payroll specialist review */
   async getDisputesForSpecialistReview(): Promise<disputes[]> {
     return this.disputesModel
@@ -1844,16 +2003,16 @@ async managerConfirmClaimApproval(
   /** PHASE 4: REFUND PROCESS */
 
   /** Finance Staff: Get all refunds (pending and paid) */
-async getPendingRefunds() {
-  return this.refundsModel
-    .find({ status: RefundStatus.PENDING })
-    .populate('employeeId', 'employeeNumber')
-    .populate('financeStaffId', 'employeeNumber')
-    .populate('claimId', 'claimId')
-    .populate('disputeId', 'disputeId')
-    .lean()
-    .exec();
-}
+  async getPendingRefunds() {
+    return this.refundsModel
+      .find({ status: RefundStatus.PENDING })
+      .populate('employeeId', 'employeeNumber')
+      .populate('financeStaffId', 'employeeNumber')
+      .populate('claimId', 'claimId')
+      .populate('disputeId', 'disputeId')
+      .lean()
+      .exec();
+  }
   /** Finance Staff: Mark refund as paid (when processed in payroll) */
   async markRefundAsPaid(
     refundId: string,
@@ -1877,7 +2036,7 @@ async getPendingRefunds() {
       const now = new Date();
       if (new Date(payrollRun.payrollPeriod) < now) {
         throw new BadRequestException(
-          'Cannot mark refund as paid for an expired payroll period'
+          'Cannot mark refund as paid for an expired payroll period',
         );
       }
 
