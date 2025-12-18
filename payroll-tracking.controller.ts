@@ -3,9 +3,9 @@ import { UseGuards, Get, Query, Req, Res, Post, Body } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { PayrollTrackingService } from './payroll-tracking.service';
-import type {Request,Response } from 'express';
+import type { Request, Response } from 'express';
 import { refunds, refundsDocument } from './Models/refunds.schema';
-import {  PayrollDeduction } from './payroll-tracking.service';
+import { PayrollDeduction } from './payroll-tracking.service';
 import { Param, ParseIntPipe } from '@nestjs/common';
 import { FinanceReport } from './payroll-tracking.service';
 import { Roles } from '../auth/decorator/roles.decorator';
@@ -18,7 +18,7 @@ export class PayrollTrackingController {
     private readonly payrollTrackingService: PayrollTrackingService,
   ) {}
 
-   @Get('my-payslip')
+  @Get('my-payslip')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(SystemRole.DEPARTMENT_EMPLOYEE)
   async viewMyPayslip(@Req() req) {
@@ -26,37 +26,32 @@ export class PayrollTrackingController {
     return this.payrollTrackingService.viewMyPayslip(userId);
   }
 
+  @Get('download-payslip')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.DEPARTMENT_EMPLOYEE)
+  async downloadMyPayslip(@Req() req, @Res() res: Response) {
+    const userId = req.user.id;
+    // NOTE: This service call handles finding the payslip and throwing NotFoundException if needed.
+    const stream =
+      await this.payrollTrackingService.downloadRecentPayslipPdf(userId);
 
-@Get('download-payslip')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(SystemRole.DEPARTMENT_EMPLOYEE)
-async downloadMyPayslip(@Req() req, @Res() res: Response) {
-  const userId = req.user.id;
-  // NOTE: This service call handles finding the payslip and throwing NotFoundException if needed.
-  const stream = await this.payrollTrackingService.downloadRecentPayslipPdf(userId);
+    const filename = `payslip_${new Date().getFullYear()}_${new Date().getMonth() + 1}.pdf`;
 
-  
-  const filename = `payslip_${new Date().getFullYear()}_${new Date().getMonth() + 1}.pdf`;
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename=${filename}`,
+    });
 
-
-  res.set({
-    'Content-Type': 'application/pdf',
-    'Content-Disposition': `attachment; filename=${filename}`,
-  });
-
-  stream.pipe(res);
+    stream.pipe(res);
   }
 
-
-
-@Get('my-payslip-status')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(SystemRole.DEPARTMENT_EMPLOYEE)
-async getMyPayslipStatus(@Req() req) {
-  const userId = req.user.id; // automatically from JWT
-  return this.payrollTrackingService.getMyPayslipStatusHistory(userId);
-}
-
+  @Get('my-payslip-status')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.DEPARTMENT_EMPLOYEE)
+  async getMyPayslipStatus(@Req() req) {
+    const userId = req.user.id; // automatically from JWT
+    return this.payrollTrackingService.getMyPayslipStatusHistory(userId);
+  }
 
   @Get('base-salary')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -82,23 +77,18 @@ async getMyPayslipStatus(@Req() req) {
     return this.payrollTrackingService.viewTransportationCompensation(userId);
   }
 
-
   @Get('tax-deduction/:payslipId')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(SystemRole.DEPARTMENT_EMPLOYEE)
-async viewDetailedTaxDeductions(
-  @Req() req,
-  @Param('payslipId') payslipId: string,
-) {
-  return this.payrollTrackingService.viewDetailedTaxDeductions(
-    req.user.id,
-    payslipId,
-  );
-}
-
-  
-
-
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.DEPARTMENT_EMPLOYEE)
+  async viewDetailedTaxDeductions(
+    @Req() req,
+    @Param('payslipId') payslipId: string,
+  ) {
+    return this.payrollTrackingService.viewDetailedTaxDeductions(
+      req.user.id,
+      payslipId,
+    );
+  }
 
   @Get('insurance-deductions')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -109,15 +99,15 @@ async viewDetailedTaxDeductions(
   }
 
   @Get('misconduct-deductions')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(SystemRole.DEPARTMENT_EMPLOYEE)
-async getMyDeductions(
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.DEPARTMENT_EMPLOYEE)
+  async getMyDeductions(
     @Req() req,
     @Query('startDate') startDateString: string, // Directly extract 'startDate'
-    @Query('endDate') endDateString: string,   // Directly extract 'endDate'
-): Promise<PayrollDeduction[]> {
+    @Query('endDate') endDateString: string, // Directly extract 'endDate'
+  ): Promise<PayrollDeduction[]> {
     const userId = req.user.id;
-    
+
     // Manual conversion from query string to Date object
     const startDate = new Date(startDateString);
     const endDate = new Date(endDateString);
@@ -125,24 +115,22 @@ async getMyDeductions(
     // NOTE: In this non-DTO approach, you lose the automatic validation provided
     // by class-validator (e.g., ensuring it's a valid date format).
     // You may need to add manual validation here using a try...catch or checks.
-    
+
     return this.payrollTrackingService.calculateMisconductAbsenceDeductions(
-        userId,
-        startDate,
-        endDate,
+      userId,
+      startDate,
+      endDate,
     );
-}
+  }
 
+  @Get('unpaid-leave-deductions')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.DEPARTMENT_EMPLOYEE)
+  async getUnpaidLeaveDeductions(@Req() req) {
+    const userId = req.user.id;
 
-@Get('unpaid-leave-deductions')
-    @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles(SystemRole.DEPARTMENT_EMPLOYEE)
-    async getUnpaidLeaveDeductions(@Req() req) {
-        const userId = req.user.id;
-        
-        return this.payrollTrackingService.calculateUnpaidLeaveDeductions(userId);
-    }
-
+    return this.payrollTrackingService.calculateUnpaidLeaveDeductions(userId);
+  }
 
   @Get('salary-history')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -182,6 +170,7 @@ async getMyDeductions(
     @Body() body: { description: string; claimType: string; amount: number },
   ) {
     const userId = req.user.id; // Extracted automatically from JWT
+    console.log('userID ', userId);
     const { description, claimType, amount } = body;
 
     return this.payrollTrackingService.submitExpenseClaim(
@@ -358,22 +347,22 @@ async getMyDeductions(
   }
 
   /** Payroll Manager: Confirm dispute approval */
-@Post('dispute/:disputeId/manager-confirm')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(SystemRole.PAYROLL_MANAGER)
-async managerConfirmDispute(
-  @Req() req,
-  @Param('disputeId') disputeId: string,
-  @Body('refundAmount') refundAmount: number,
-  @Body('comments') comments?: string,
-) {
-  return this.payrollTrackingService.managerConfirmDisputeApproval(
-    disputeId,
-    req.user.id,
-    refundAmount,
-    comments,
-  );
-}
+  @Post('dispute/:disputeId/manager-confirm')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.PAYROLL_MANAGER)
+  async managerConfirmDispute(
+    @Req() req,
+    @Param('disputeId') disputeId: string,
+    @Body('refundAmount') refundAmount: number,
+    @Body('comments') comments?: string,
+  ) {
+    return this.payrollTrackingService.managerConfirmDisputeApproval(
+      disputeId,
+      req.user.id,
+      refundAmount,
+      comments,
+    );
+  }
   /** Payroll Manager: Reject dispute */
   @Post('dispute/:disputeId/manager-reject')
   @Roles(SystemRole.PAYROLL_MANAGER)
@@ -390,24 +379,24 @@ async managerConfirmDispute(
       comments,
     );
   }
-@Post('claim/:claimId/specialist-approve')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(SystemRole.PAYROLL_SPECIALIST)
-async specialistApproveClaim(
-  @Req() req,
-  @Param('claimId') claimId: string,
-  @Body('approvedAmount') approvedAmount?: number,
-  @Body('comments') comments?: string,
-) {
-  const payrollSpecialistId = req.user.id;
+  @Post('claim/:claimId/specialist-approve')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.PAYROLL_SPECIALIST)
+  async specialistApproveClaim(
+    @Req() req,
+    @Param('claimId') claimId: string,
+    @Body('approvedAmount') approvedAmount?: number,
+    @Body('comments') comments?: string,
+  ) {
+    const payrollSpecialistId = req.user.id;
 
-  return this.payrollTrackingService.specialistApproveClaim(
-    claimId,
-    payrollSpecialistId,
-    approvedAmount,
-    comments,
-  );
-}
+    return this.payrollTrackingService.specialistApproveClaim(
+      claimId,
+      payrollSpecialistId,
+      approvedAmount,
+      comments,
+    );
+  }
 
   /** Payroll Specialist: Reject expense claim */
   @Post('claim/:claimId/specialist-reject')
@@ -427,20 +416,20 @@ async specialistApproveClaim(
   }
 
   /** Payroll Manager: Confirm claim approval */
-@Post('claim/:claimId/manager-confirm')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(SystemRole.PAYROLL_MANAGER)
-async managerConfirmClaim(
-  @Req() req,
-  @Param('claimId') claimId: string,
-  @Body('comments') comments?: string,
-) {
-  return this.payrollTrackingService.managerConfirmClaimApproval(
-    claimId,
-    req.user.id,
-    comments,
-  );
-}
+  @Post('claim/:claimId/manager-confirm')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.PAYROLL_MANAGER)
+  async managerConfirmClaim(
+    @Req() req,
+    @Param('claimId') claimId: string,
+    @Body('comments') comments?: string,
+  ) {
+    return this.payrollTrackingService.managerConfirmClaimApproval(
+      claimId,
+      req.user.id,
+      comments,
+    );
+  }
 
   /** Payroll Manager: Reject claim */
   @Post('claim/:claimId/manager-reject')
@@ -509,11 +498,11 @@ async managerConfirmClaim(
 
   /** EMPLOYEE SELF-SERVICE ENDPOINTS */
   @Get('refunds')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(SystemRole.FINANCE_STAFF)
-async getAllRefunds() {
-  return this.payrollTrackingService.getAllRefunds();
-}
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.FINANCE_STAFF)
+  async getAllRefunds() {
+    return this.payrollTrackingService.getAllRefunds();
+  }
   /** Employee: View my disputes */
   @Get('employee/:employeeId/disputes')
   @Roles(
