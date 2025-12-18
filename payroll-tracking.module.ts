@@ -56,7 +56,14 @@ import { disputes, disputesSchema } from './Models/disputes.schema';
 import { PayrollConfigurationModule } from '../payroll-configuration/payroll-configuration.module';
 import { PayrollExecutionModule } from '../payroll-execution/payroll-execution.module';
 import { TimeManagementModule } from 'src/time-management/time-management.module';
-import { NotificationLog, NotificationLogSchema } from 'src/time-management/Models/notification-log.schema';
+import {
+  NotificationLog,
+  NotificationLogSchema,
+} from 'src/time-management/Models/notification-log.schema';
+import {
+  taxRules,
+  taxRulesSchema,
+} from 'src/payroll-configuration/Models/taxRules.schema';
 @Module({
   imports: [
     PayrollConfigurationModule,
@@ -66,9 +73,10 @@ import { NotificationLog, NotificationLogSchema } from 'src/time-management/Mode
     MongooseModule.forFeature([
       { name: paySlip.name, schema: paySlipSchema },
       { name: EmployeeProfile.name, schema: EmployeeProfileSchema },
-      { name: EmployeeSystemRole.name, schema: EmployeeSystemRoleSchema }, 
+      { name: EmployeeSystemRole.name, schema: EmployeeSystemRoleSchema },
       { name: payGrade.name, schema: payGradeSchema },
       { name: LeaveEntitlement.name, schema: LeaveEntitlementSchema },
+      { name: taxRules.name, schema: taxRulesSchema },
       { name: LeaveType.name, schema: LeaveTypeSchema },
       { name: allowance.name, schema: allowanceSchema },
       { name: AttendanceRecord.name, schema: AttendanceRecordSchema },
@@ -83,13 +91,10 @@ import { NotificationLog, NotificationLogSchema } from 'src/time-management/Mode
       { name: disputes.name, schema: disputesSchema },
       { name: payrollRuns.name, schema: payrollRunsSchema },
       { name: NotificationLog.name, schema: NotificationLogSchema },
-
     ]),
   ],
   controllers: [PayrollTrackingController],
-  providers: [
-    PayrollTrackingService,
-  ],
+  providers: [PayrollTrackingService],
   exports: [PayrollTrackingService],
 })
 export class PayrollTrackingModule {}
