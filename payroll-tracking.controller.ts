@@ -108,7 +108,6 @@ export class PayrollTrackingController {
   ): Promise<PayrollDeduction[]> {
     const userId = req.user.id;
 
-
     return this.payrollTrackingService.calculateMisconductAbsenceDeductions(
       userId,
     );
@@ -208,8 +207,8 @@ export class PayrollTrackingController {
 
   /** Get payslips by department */
   @Post('payslips/bydepartment')
-  //@UseGuards(JwtAuthGuard, RolesGuard)
-  //@Roles(SystemRole.PAYROLL_SPECIALIST)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.PAYROLL_SPECIALIST)
   async getPayslipsByDepartment(
     @Body('departmentId') departmentId: string,
     @Body('payrollRunId') payrollRunId: string,
