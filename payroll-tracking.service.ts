@@ -75,7 +75,10 @@ import {
   EmployeeSystemRoleDocument,
 } from '../employee-profile/Models/employee-system-role.schema';
 import { SystemRole } from '../employee-profile/enums/employee-profile.enums';
-import { NotificationLogDocument } from 'src/time-management/Models/notification-log.schema';
+import {
+  NotificationLog,
+  NotificationLogDocument,
+} from 'src/time-management/Models/notification-log.schema';
 import { ConfigStatus } from '../payroll-configuration/enums/payroll-configuration-enums';
 import { TrackingService } from '../leaves/tracking/tracking.service';
 
@@ -144,7 +147,7 @@ export class PayrollTrackingService {
     private readonly disputeModel: Model<disputesDocument>,
     @InjectModel(EmployeeSystemRole.name)
     private readonly employeeSystemRoleModel: Model<EmployeeSystemRoleDocument>,
-    @InjectModel('NotificationLog')
+    @InjectModel(NotificationLog.name)
     private readonly notificationLogModel: Model<NotificationLogDocument>,
     private readonly TrackingService: TrackingService,
   ) {}
@@ -1444,7 +1447,7 @@ export class PayrollTrackingService {
 
     // ✅ CREATE NOTIFICATION LOGS DIRECTLY
     const notifications = financeStaffRoles.map((role) => ({
-      to: role.employeeProfileId.toString(),
+      to: new Types.ObjectId(role.employeeProfileId),
       type: 'SYSTEM',
       message: `Refund Requires Processing. Dispute ${dispute.disputeId} has been approved. Refund amount: ${refundAmount}. Please process the refund.`,
     }));
