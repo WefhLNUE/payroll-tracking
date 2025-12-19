@@ -64,8 +64,10 @@ import {
   taxRules,
   taxRulesSchema,
 } from 'src/payroll-configuration/Models/taxRules.schema';
+import { LeavesModule } from '../leaves/leaves.module';
 @Module({
   imports: [
+    LeavesModule,
     PayrollConfigurationModule,
     forwardRef(() => PayrollExecutionModule),
     TimeManagementModule,

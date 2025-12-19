@@ -76,6 +76,8 @@ import {
 } from '../employee-profile/Models/employee-system-role.schema';
 import { SystemRole } from '../employee-profile/enums/employee-profile.enums';
 import { NotificationLogDocument } from 'src/time-management/Models/notification-log.schema';
+import { ConfigStatus } from '../payroll-configuration/enums/payroll-configuration-enums';
+import { TrackingService } from '../leaves/tracking/tracking.service';
 
 export type PayslipDocument = BasePayslipDocument & {
   createdAt: Date;
@@ -144,6 +146,7 @@ export class PayrollTrackingService {
     private readonly employeeSystemRoleModel: Model<EmployeeSystemRoleDocument>,
     @InjectModel('NotificationLog')
     private readonly notificationLogModel: Model<NotificationLogDocument>,
+    private readonly TrackingService: TrackingService,
   ) {}
 
   // employee view their most recent payslip
@@ -156,6 +159,19 @@ export class PayrollTrackingService {
     if (!payslip) throw new NotFoundException('No payslip available');
 
     return payslip;
+  }
+
+  async viewMyPayslips(userId: string): Promise<paySlip[]> {
+    const payslips = await this.payslipModel
+      .find({ employeeId: new Types.ObjectId(userId) })
+      .sort({ createdAt: -1 }) // most recent first
+      .exec();
+
+    if (!payslips.length) {
+      throw new NotFoundException('No payslips available');
+    }
+
+    return payslips;
   }
 
   //employee downloads his/her payslip for the current month(REQ-PY-1)
@@ -569,83 +585,7 @@ export class PayrollTrackingService {
 
   // Employee views compensation for unused/encashed leave (REQ-PY-5)
   async viewUnusedLeaveCompensation(userId: string) {
-    // 1. Get Employee Profile
-    const employee = await this.employeeModel.findById(userId).lean();
-    if (!employee) {
-      throw new NotFoundException('Employee profile not found');
-    }
-    if (!employee.payGradeId) {
-      throw new NotFoundException(
-        'Pay grade not assigned; cannot calculate daily rate',
-      );
-    }
-
-    // 2. Fetch Pay Grade
-    const payGrade = await this.payGradeModel
-      .findById(employee.payGradeId)
-      .lean();
-    if (!payGrade) {
-      throw new NotFoundException('Pay grade details not found');
-    }
-
-    // 3. Get Leave Entitlements and populate Leave Type
-    const entitlements = await this.leaveEntitlementModel
-      .find({ employeeId: new Types.ObjectId(userId) })
-      .populate({
-        path: 'leaveTypeId',
-        select: '_id name isEncashable', // Only fetch relevant fields
-      })
-      .lean();
-
-    if (!entitlements || entitlements.length === 0) {
-      return {
-        message: 'No leave entitlements found for this employee.',
-        totalPotentialCompensation: 0,
-        leaveBreakdown: [],
-      };
-    }
-
-    // 4. Calculation Logic
-    const WORK_DAYS_PER_MONTH = 22;
-
-    // Apply contract/work multipliers
-    let multiplier = 1;
-    if (employee.contractType === 'PART_TIME_CONTRACT') multiplier *= 0.5;
-    if (employee.workType === 'PART_TIME') multiplier *= 0.5;
-
-    const adjustedMonthlySalary = payGrade.baseSalary * multiplier;
-    const dailyRate = adjustedMonthlySalary / WORK_DAYS_PER_MONTH;
-
-    const compensationDetails = entitlements.map((ent) => {
-      // After populate, leaveTypeId is now the full document
-      const leaveType = ent.leaveTypeId as any;
-      const remainingDays = ent.remaining || 0;
-      const estimatedValue = +(remainingDays * dailyRate).toFixed(2);
-
-      return {
-        leaveTypeId: leaveType?._id || null,
-        leaveTypeName: leaveType?.name || 'Unknown Leave Type',
-        isEncashable: leaveType?.isEncashable ?? true,
-        remainingDays: remainingDays,
-        accruedActual: ent.accruedActual,
-        dailyRate: +dailyRate.toFixed(2),
-        estimatedValue: estimatedValue,
-      };
-    });
-
-    const totalPotentialCompensation = compensationDetails.reduce(
-      (sum, item) => sum + item.estimatedValue,
-      0,
-    );
-
-    return {
-      employeeId: userId,
-      monthlyBaseSalary: +adjustedMonthlySalary.toFixed(2),
-      dailyRate: +dailyRate.toFixed(2),
-      totalPotentialCompensation: +totalPotentialCompensation.toFixed(2),
-      leaveBreakdown: compensationDetails,
-      note: 'Value calculated based on current base salary and a standard 22-day work month.',
-    };
+    this.TrackingService.viewUnusedLeaveCompensation(userId);
   }
 
   // Employee views transportation/commuting allowances
@@ -885,132 +825,7 @@ export class PayrollTrackingService {
   //View any salary deductions due to misconduct or unapproved absenteeism (REQ-PY-10)// View salary deductions due to misconduct or unapproved absenteeism (REQ-PY-10)
 
   async calculateUnpaidLeaveDeductions(employeeId: string) {
-    const WORKING_DAYS_PER_MONTH = 22;
-
-    // 1. Fetch employee with pay grade
-    const employee = await this.employeeModel
-      .findById(employeeId)
-      .populate('payGradeId')
-      .lean()
-      .exec();
-
-    if (!employee) {
-      throw new Error('Employee not found');
-    }
-
-    // 2. Extract base salary safely
-    const payGrade = employee.payGradeId as
-      | { baseSalary?: number }
-      | null
-      | undefined;
-
-    const baseSalary = payGrade?.baseSalary ?? 0;
-
-    if (baseSalary === 0) {
-      console.warn(
-        `[DEDUCTION WARNING] Pay Grade could not be populated or baseSalary is 0 for employee ${employeeId}.`,
-      );
-    }
-
-    const dailyRate = baseSalary / WORKING_DAYS_PER_MONTH;
-
-    // 3. Fetch employee leave entitlements (convert employeeId to ObjectId)
-    const entitlements = await this.leaveEntitlementModel
-      .find({ employeeId: new Types.ObjectId(employeeId) })
-      .lean()
-      .exec();
-
-    console.log(
-      `[DEBUG] Found ${entitlements.length} entitlements for employee ${employeeId}`,
-    );
-
-    // 4. Fetch all unpaid leave types (paid: false)
-    // For unpaid leave deductions, we want leave types that are unpaid (paid: false)
-    // These result in salary deductions when taken
-    const leaveTypes = await this.leaveTypeModel
-      .find({
-        paid: false, // Must be unpaid to result in deductions
-      })
-      .select('_id name paid deductible')
-      .lean()
-      .exec();
-
-    console.log(`[DEBUG] Found ${leaveTypes.length} unpaid leave types`);
-    console.log(
-      `[DEBUG] Unpaid leave types:`,
-      leaveTypes.map((lt) => ({
-        name: lt.name,
-        paid: lt.paid,
-        deductible: lt.deductible,
-      })),
-    );
-
-    // 5. Build lookup map for leave types
-    const leaveTypeMap = new Map(
-      leaveTypes.map((lt) => [lt._id.toString(), lt]),
-    );
-
-    // 6. Calculate unpaid leave deductions
-    const details = entitlements
-      .map((ent) => {
-        const leaveType = leaveTypeMap.get(ent.leaveTypeId.toString());
-
-        // Debug logging
-        if (!leaveType) {
-          console.log(
-            `[DEBUG] Entitlement ${ent._id} has leaveTypeId ${ent.leaveTypeId} which is not an unpaid deductible type`,
-          );
-          return null;
-        }
-
-        const daysTaken = ent.taken ?? 0;
-
-        // Skip if no days taken
-        if (daysTaken === 0) {
-          console.log(
-            `[DEBUG] Entitlement ${ent._id} for leave type ${leaveType.name} has 0 days taken`,
-          );
-          return null;
-        }
-
-        const amount = daysTaken * dailyRate;
-
-        console.log(
-          `[DEBUG] Including deduction for ${leaveType.name}: ${daysTaken} days × $${dailyRate.toFixed(2)} = $${amount.toFixed(2)}`,
-        );
-
-        return {
-          leaveType: leaveType.name,
-          daysTaken,
-          dailyRate: Number(dailyRate.toFixed(2)),
-          amount: Number(amount.toFixed(2)),
-        };
-      })
-      .filter(Boolean) as {
-      leaveType: string;
-      daysTaken: number;
-      dailyRate: number;
-      amount: number;
-    }[];
-
-    console.log(
-      `[DEBUG] Calculated ${details.length} unpaid leave deduction details`,
-    );
-
-    // 7. Totals
-    const unpaidDaysTotal = details.reduce((sum, d) => sum + d.daysTaken, 0);
-
-    const totalDeductions = details.reduce((sum, d) => sum + d.amount, 0);
-
-    // 8. Final response
-    return {
-      baseSalary,
-      workingDays: WORKING_DAYS_PER_MONTH,
-      dailyRate: Number(dailyRate.toFixed(2)),
-      unpaidDaysTotal,
-      totalDeductions: Number(totalDeductions.toFixed(2)),
-      details,
-    };
+    return this.TrackingService.calculateUnpaidLeaveDeductions(employeeId);
   }
 
   //get salary history(REQ-PY-13)
@@ -1043,25 +858,18 @@ export class PayrollTrackingService {
 
   // View employer contributions (insurance, pension, allowances)(req-py-14)
   async viewEmployerContributions(userId: string) {
-    // 1. Get the employee
-    const employee: any = await this.employeeModel
+    // 1. Fetch employee and populate the payGrade
+    const employee = await this.employeeModel
       .findById(userId)
       .populate('payGradeId')
+      .lean() // Use lean for faster, read-only POJO access
       .exec();
-    if (!employee) throw new Error('Employee not found');
-    const pg = await this.payGradeModel.find().exec();
 
-    console.log('paygrademodel:', pg);
-    console.log('Employee found:', {
-      employeeId: employee._id?.toString(),
-      payGradeId: employee.payGradeId?.toString(),
-      payGradePopulated:
-        !!employee.payGradeId && typeof employee.payGradeId === 'object',
-    });
+    if (!employee) throw new NotFoundException('Employee not found');
 
-    // Check if payGradeId exists and is populated
-    if (!employee.payGradeId) {
-      console.warn('Employee has no payGradeId assigned');
+    // 2. Validate PayGrade population
+    const pg = employee.payGradeId as unknown as payGrade;
+    if (!pg || !pg.baseSalary) {
       return {
         baseSalary: 0,
         totalEmployerInsurance: 0,
@@ -1069,125 +877,83 @@ export class PayrollTrackingService {
         totalEmployerContributions: 0,
         insurance: [],
         allowances: [],
-        error: 'No pay grade assigned to employee',
+        message: 'No active pay grade or base salary found for this employee',
       };
     }
 
-    // Handle case where payGradeId is an ObjectId (not populated)
-    // Check if it's an ObjectId instance (has toString but no baseSalary or grade property)
-    const isObjectId =
-      employee.payGradeId &&
-      typeof employee.payGradeId === 'object' &&
-      employee.payGradeId.toString &&
-      !employee.payGradeId.baseSalary &&
-      !employee.payGradeId.grade; // payGrade has 'grade' field, ObjectId doesn't
+    const baseSalary = pg.baseSalary;
 
-    if (isObjectId) {
-      console.warn(
-        'PayGradeId is an ObjectId but not populated. Attempting manual fetch...',
-        'ObjectId:',
-        employee.payGradeId.toString(),
-      );
-      const payGradeIdString = employee.payGradeId.toString();
-      const payGradeDoc = await this.payGradeModel
-        .findById(payGradeIdString)
-        .exec();
-      if (payGradeDoc) {
-        employee.payGradeId = payGradeDoc;
-        console.log('Manually fetched pay grade:', {
-          _id: payGradeDoc._id,
-          grade: payGradeDoc.grade,
-          baseSalary: payGradeDoc.baseSalary,
-        });
-      } else {
-        console.error(
-          'Pay grade document not found in database for ID:',
-          payGradeIdString,
-        );
-        return {
-          baseSalary: 0,
-          totalEmployerInsurance: 0,
-          totalAllowances: 0,
-          totalEmployerContributions: 0,
-          insurance: [],
-          allowances: [],
-          error: 'Pay grade document not found',
-        };
-      }
-    }
-
-    const baseSalary = employee?.payGradeId?.baseSalary ?? 0;
-    console.log(
-      'Base salary from pay grade:',
-      baseSalary,
-      'Pay grade object:',
-      employee.payGradeId,
-    );
-
-    if (baseSalary === 0) {
-      console.warn(
-        'Pay grade exists but baseSalary is 0 or undefined. Pay grade:',
-        employee.payGradeId,
-      );
-    }
-
-    // 2. Fetch approved insurance brackets applicable to this employee's salary
-    const insuranceBrackets = await this.insuranceBracketModel
+    // 3. Find matching Insurance Brackets based on baseSalary
+    const applicableBrackets = await this.insuranceBracketModel
       .find({
-        status: 'APPROVED',
+        status: ConfigStatus.APPROVED,
         minSalary: { $lte: baseSalary },
         maxSalary: { $gte: baseSalary },
       })
+      .lean()
       .exec();
 
-    // 3. Calculate employer contributions
-    const insuranceContributions = insuranceBrackets.map((ib) => ({
-      name: ib.name,
-      amount: +(baseSalary * (ib.employerRate / 100)).toFixed(2), // Map to 'amount' for frontend
-      employerContribution: +(baseSalary * (ib.employerRate / 100)).toFixed(2),
-      employeeContribution: +(baseSalary * (ib.employeeRate / 100)).toFixed(2),
-      total: +(
+    // 4. Calculate Insurance Contributions
+    const insuranceDetails = applicableBrackets.map((bracket) => {
+      const employerAmount = +(
         baseSalary *
-        ((ib.employeeRate + ib.employerRate) / 100)
-      ).toFixed(2),
-      employerRate: ib.employerRate,
-      employeeRate: ib.employeeRate,
-    }));
+        (bracket.employerRate / 100)
+      ).toFixed(2);
+      const employeeAmount = +(
+        baseSalary *
+        (bracket.employeeRate / 100)
+      ).toFixed(2);
 
-    const totalEmployerInsurance = insuranceContributions.reduce(
-      (sum, i) => sum + i.employerContribution,
+      return {
+        name: bracket.name,
+        employerRate: bracket.employerRate,
+        employeeRate: bracket.employeeRate,
+        employerContribution: employerAmount,
+        employeeContribution: employeeAmount,
+        total: +(employerAmount + employeeAmount).toFixed(2),
+      };
+    });
+
+    const totalEmployerInsurance = insuranceDetails.reduce(
+      (sum, item) => sum + item.employerContribution,
       0,
     );
 
-    // 4. Fetch approved allowances for this employee
+    // 5. Fetch approved Allowances (assuming they are linked via employeeId)
     const allowances = await this.allowanceModel
       .find({
-        status: 'APPROVED',
-        employeeId: new Types.ObjectId(userId), // Convert to ObjectId
+        employeeId: new Types.ObjectId(userId),
+        status: ConfigStatus.APPROVED,
       })
+      .lean()
       .exec();
-
-    const totalAllowances = allowances.reduce((sum, a) => sum + a.amount, 0);
 
     const allowanceDetails = allowances.map((a) => ({
       name: a.name,
       amount: a.amount,
     }));
 
-    // 5. Return combined employer contributions - map insurance to use 'amount' field
-    const insuranceArray = insuranceContributions.map((ic) => ({
-      name: ic.name,
-      amount: ic.amount || ic.employerContribution || 0, // Frontend expects 'amount'
-    }));
+    const totalAllowances = allowanceDetails.reduce(
+      (sum, a) => sum + a.amount,
+      0,
+    );
 
+    // 6. Construct Final Response
     return {
-      baseSalary: baseSalary || 0,
-      totalEmployerInsurance: totalEmployerInsurance || 0,
-      totalAllowances: totalAllowances || 0,
-      totalEmployerContributions:
-        (totalEmployerInsurance || 0) + (totalAllowances || 0),
-      insurance: insuranceArray.length > 0 ? insuranceArray : [],
-      allowances: allowanceDetails.length > 0 ? allowanceDetails : [],
+      baseSalary,
+      totalEmployerInsurance: +totalEmployerInsurance.toFixed(2),
+      totalAllowances: +totalAllowances.toFixed(2),
+      totalEmployerContributions: +(
+        totalEmployerInsurance + totalAllowances
+      ).toFixed(2),
+      insurance: insuranceDetails.map((i) => ({
+        name: i.name,
+        amount: i.employerContribution,
+      })),
+      allowances: allowanceDetails,
+      breakdown: {
+        insuranceDetails,
+      },
     };
   }
 
@@ -1382,11 +1148,15 @@ export class PayrollTrackingService {
   /** Find payslips for a department (optional) */
   async findPaySlipsByDepartment(departmentId: string, payrollRunID: string) {
     try {
+      const depId = new Types.ObjectId(departmentId);
+      const runId = new Types.ObjectId(payrollRunID);
+
+      // 1️⃣ Fetch all payslips for the payroll run
       const results = await this.payslipModel
-        .find({ payrollRunId: payrollRunID })
+        .find({ payrollRunId: runId })
         .populate({
           path: 'employeeId',
-          match: { primaryDepartmentId: departmentId },
+          match: { primaryDepartmentId: depId },
           select:
             'firstName lastName email employeeNumber primaryDepartmentId position',
         })
@@ -1396,21 +1166,24 @@ export class PayrollTrackingService {
         })
         .lean();
 
-      // Filter out payslips where employee doesn't match department
+      // 2️⃣ Filter out payslips where employee does not belong to department
       const filteredResults = results.filter((p) => p.employeeId);
 
-      // Calculate summary statistics
+      // 3️⃣ Summary calculations
       const summary = {
         totalPayslips: filteredResults.length,
         totalGrossSalary: filteredResults.reduce(
-          (sum, p) => sum + p.totalGrossSalary,
+          (sum, p) => sum + (p.totalGrossSalary || 0),
           0,
         ),
         totalDeductions: filteredResults.reduce(
-          (sum, p) => sum + (p.totaDeductions || 0),
+          (sum, p) => sum + (p.totaDeductions || 0), // keep field name if DB still uses 'totaDeductions'
           0,
         ),
-        totalNetPay: filteredResults.reduce((sum, p) => sum + p.netPay, 0),
+        totalNetPay: filteredResults.reduce(
+          (sum, p) => sum + (p.netPay || 0),
+          0,
+        ),
         paymentStatusBreakdown: {
           pending: filteredResults.filter(
             (p) => (p.paymentStatus || '').toLowerCase() === 'pending',
@@ -1421,6 +1194,7 @@ export class PayrollTrackingService {
         },
       };
 
+      // 4️⃣ Return final result
       return {
         payslips: filteredResults,
         summary,
@@ -1428,6 +1202,7 @@ export class PayrollTrackingService {
         payrollRunId: payrollRunID,
       };
     } catch (err) {
+      console.error('Error fetching payslips by department:', err);
       throw new InternalServerErrorException(
         `Failed to fetch payslips for department ${departmentId}: ${err.message}`,
       );
@@ -1445,7 +1220,7 @@ export class PayrollTrackingService {
           `Invalid month/year parameters: month=${month}, year=${year}`,
         );
       }
-
+      ////
       // Start at the first day of the month, and end at the last millisecond of the month
       const startDate = new Date(y, m - 1, 1, 0, 0, 0, 0);
       const endDate = new Date(y, m, 0, 23, 59, 59, 999);

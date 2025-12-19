@@ -26,6 +26,14 @@ export class PayrollTrackingController {
     return this.payrollTrackingService.viewMyPayslip(userId);
   }
 
+  @Get('my-payslips')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(SystemRole.DEPARTMENT_EMPLOYEE)
+  async viewMyPayslips(@Req() req) {
+    const userId = req.user.id; // automatically from JWT
+    return this.payrollTrackingService.viewMyPayslips(userId);
+  }
+
   @Get('download-payslip')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(SystemRole.DEPARTMENT_EMPLOYEE)
