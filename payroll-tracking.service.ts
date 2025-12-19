@@ -886,65 +886,99 @@ export class PayrollTrackingService {
 
   async calculateUnpaidLeaveDeductions(employeeId: string) {
     const WORKING_DAYS_PER_MONTH = 22;
-  
+
     // 1. Fetch employee with pay grade
     const employee = await this.employeeModel
       .findById(employeeId)
       .populate('payGradeId')
       .lean()
       .exec();
-  
+
     if (!employee) {
       throw new Error('Employee not found');
     }
-  
+
     // 2. Extract base salary safely
     const payGrade = employee.payGradeId as
       | { baseSalary?: number }
       | null
       | undefined;
-  
+
     const baseSalary = payGrade?.baseSalary ?? 0;
-  
+
     if (baseSalary === 0) {
       console.warn(
         `[DEDUCTION WARNING] Pay Grade could not be populated or baseSalary is 0 for employee ${employeeId}.`,
       );
     }
-  
+
     const dailyRate = baseSalary / WORKING_DAYS_PER_MONTH;
-  
-    // 3. Fetch employee leave entitlements
+
+    // 3. Fetch employee leave entitlements (convert employeeId to ObjectId)
     const entitlements = await this.leaveEntitlementModel
-      .find({ employeeId })
+      .find({ employeeId: new Types.ObjectId(employeeId) })
       .lean()
       .exec();
-  
-    // 4. Fetch deductible leave types
+
+    console.log(
+      `[DEBUG] Found ${entitlements.length} entitlements for employee ${employeeId}`,
+    );
+
+    // 4. Fetch all unpaid leave types (paid: false)
+    // For unpaid leave deductions, we want leave types that are unpaid (paid: false)
+    // These result in salary deductions when taken
     const leaveTypes = await this.leaveTypeModel
-      .find({ deductible: true })
-      .select('_id name paid')
+      .find({
+        paid: false, // Must be unpaid to result in deductions
+      })
+      .select('_id name paid deductible')
       .lean()
       .exec();
-  
+
+    console.log(`[DEBUG] Found ${leaveTypes.length} unpaid leave types`);
+    console.log(
+      `[DEBUG] Unpaid leave types:`,
+      leaveTypes.map((lt) => ({
+        name: lt.name,
+        paid: lt.paid,
+        deductible: lt.deductible,
+      })),
+    );
+
     // 5. Build lookup map for leave types
     const leaveTypeMap = new Map(
       leaveTypes.map((lt) => [lt._id.toString(), lt]),
     );
-  
+
     // 6. Calculate unpaid leave deductions
     const details = entitlements
       .map((ent) => {
         const leaveType = leaveTypeMap.get(ent.leaveTypeId.toString());
-  
-        // Skip if leave type is missing or paid
-        if (!leaveType || leaveType.paid) {
+
+        // Debug logging
+        if (!leaveType) {
+          console.log(
+            `[DEBUG] Entitlement ${ent._id} has leaveTypeId ${ent.leaveTypeId} which is not an unpaid deductible type`,
+          );
           return null;
         }
-  
+
         const daysTaken = ent.taken ?? 0;
+
+        // Skip if no days taken
+        if (daysTaken === 0) {
+          console.log(
+            `[DEBUG] Entitlement ${ent._id} for leave type ${leaveType.name} has 0 days taken`,
+          );
+          return null;
+        }
+
         const amount = daysTaken * dailyRate;
-  
+
+        console.log(
+          `[DEBUG] Including deduction for ${leaveType.name}: ${daysTaken} days × $${dailyRate.toFixed(2)} = $${amount.toFixed(2)}`,
+        );
+
         return {
           leaveType: leaveType.name,
           daysTaken,
@@ -958,18 +992,16 @@ export class PayrollTrackingService {
       dailyRate: number;
       amount: number;
     }[];
-  
+
+    console.log(
+      `[DEBUG] Calculated ${details.length} unpaid leave deduction details`,
+    );
+
     // 7. Totals
-    const unpaidDaysTotal = details.reduce(
-      (sum, d) => sum + d.daysTaken,
-      0,
-    );
-  
-    const totalDeductions = details.reduce(
-      (sum, d) => sum + d.amount,
-      0,
-    );
-  
+    const unpaidDaysTotal = details.reduce((sum, d) => sum + d.daysTaken, 0);
+
+    const totalDeductions = details.reduce((sum, d) => sum + d.amount, 0);
+
     // 8. Final response
     return {
       baseSalary,
